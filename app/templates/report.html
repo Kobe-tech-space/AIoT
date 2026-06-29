@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% end %}
+{% block body %}
+<div class="layui-layout layui-layout-admin">
+    <div class="layui-header">
+        <div class="layui-logo">cnAgentOS</div>
+        <ul class="layui-nav layui-layout-right">
+            <li class="layui-nav-item">
+                <a href="javascript:;">{{ current_user }}</a>
+                <dl class="layui-nav-child">
+                    <dd><a href="javascript:;" onclick="document.getElementById('logout-form').submit()">退出登录</a></dd>
+                </dl>
+            </li>
+        </ul>
+    </div>
+    <div class="layui-side layui-bg-black">
+        <ul class="layui-nav layui-nav-tree">
+            <li class="layui-nav-item"><a href="/"><i class="layui-icon layui-icon-home"></i> 首页</a></li>
+            <li class="layui-nav-item"><a href="/users"><i class="layui-icon layui-icon-user"></i> 用户管理</a></li>
+            <li class="layui-nav-item"><a href="/devices"><i class="layui-icon layui-icon-set"></i> 设备管理</a></li>
+            <li class="layui-nav-item"><a href="/models"><i class="layui-icon layui-icon-engine"></i> 模型引擎</a></li>
+            <li class="layui-nav-item"><a href="/apis"><i class="layui-icon layui-icon-link"></i> 接口管理</a></li>
+            <li class="layui-nav-item"><a href="/servers"><i class="layui-icon layui-icon-util"></i> 服务器管理</a></li>
+            <li class="layui-nav-item layui-this"><a href="/reports"><i class="layui-icon layui-icon-chart"></i> 数据报表</a></li>
+        </ul>
+    </div>
+    <div class="layui-body" style="padding:20px;background:#f5f7fa;">
+
+        <!-- 统计卡片 -->
+        <div class="layui-row layui-col-space15" id="stat-cards" style="margin-bottom:15px;"></div>
+
+        <!-- 图表行 -->
+        <div class="layui-row layui-col-space15">
+            <div class="layui-col-md8"><div class="chart-card"><div class="chart-title">操作趋势（最近2小时，按分钟）</div><div id="chart-hour" style="height:300px;"></div></div></div>
+            <div class="layui-col-md4"><div class="chart-card"><div class="chart-title">设备活跃度 TOP10</div><div id="chart-device" style="height:300px;"></div></div></div>
+        </div>
+
+        <!-- 操作类型饼图 -->
+        <div class="layui-row layui-col-space15" style="margin-top:0;">
+            <div class="layui-col-md12"><div class="chart-card"><div class="chart-title">操作类型分布</div><div id="chart-type" style="height:200px;"></div></div></div>
+        </div>
+
+        <!-- 操作日志表格 -->
+        <div class="chart-card" style="margin-top:15px;">
+            <div class="chart-title">操作日志</div>
+            <div class="layui-row" style="margin-bottom:10px;">
+                <div class="layui-col-md2"><input id="filter-type" class="layui-input" placeholder="类型"></div>
+                <div class="layui-col-md2"><input id="filter-box" class="layui-input" placeholder="设备"></div>
+                <div class="layui-col-md2"><input id="filter-kw" class="layui-input" placeholder="搜索关键词"></div>
+                <div class="layui-col-md2"><button class="layui-btn" onclick="loadLogs()">查询</button></div>
+            </div>
+            <table id="log-table" lay-filter="logTable"></table>
+        </div>
+    </div>
+</div>
+<form id="logout-form" method="post" action="/auth/logout" style="display:none">{% module xsrf_form_html() %}</form>
+{% end %}
+
+{% block script %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script>
+layui.use(['table','element'],function(){
+    var table=layui.table,$=layui.$;
+    table.render({elem:'#log-table',url:'/api/reports',page:true,limit:20,cols:[[
+        {field:'id',title:'ID',width:60},
+        {field:'log_type',title:'类型',width:100,templet:function(d){var m={设备上线:'#5fb878',状态上报:'#1E9FFF',指令下发:'#FF9800',指令响应:'#9C27B0'};return '<span style="color:'+(m[d.log_type]||'#666')+'">'+d.log_type+'</span>';}},
+        {field:'box_id',title:'设备',width:120},
+        {field:'operator',title:'操作者',width:80},
+        {field:'action',title:'动作',width:120},
+        {field:'detail',title:'详情',minWidth:180},
+        {field:'created_at',title:'时间',width:160},
+    ]],parseData:function(r){return{code:r.code,count:r.count,data:r.data};},
+    request:{pageName:'page',limitName:'limit',where:{log_type:function(){return $('#filter-type').val();},box_id:function(){return $('#filter-box').val();},keyword:function(){return $('#filter-kw').val();}}}});
+
+    window.loadLogs=function(){table.reload('log-table');};
+
+    // 加载统计数据
+    function loadStats(){
+    $.get('/api/stats',function(r){r=JSON.parse(r);var d=r.data;
+        // 统计卡片
+        var types={'设备上线':0,'状态上报':0,'指令下发':0,'指令响应':0};
+        for(var i=0;i<d.type_stats.length;i++)types[d.type_stats[i].name]=d.type_stats[i].value;
+        var h='<div class="layui-col-md3"><div class="stat-card stat-green"><div class="stat-icon"><i class="layui-icon layui-icon-log"></i></div><div class="stat-info"><div class="stat-num">'+types['设备上线']+'</div><div class="stat-txt">设备上线</div></div></div></div>'
+            +'<div class="layui-col-md3"><div class="stat-card stat-blue"><div class="stat-icon"><i class="layui-icon layui-icon-upload"></i></div><div class="stat-info"><div class="stat-num">'+types['状态上报']+'</div><div class="stat-txt">状态上报</div></div></div></div>'
+            +'<div class="layui-col-md3"><div class="stat-card stat-orange"><div class="stat-icon"><i class="layui-icon layui-icon-send"></i></div><div class="stat-info"><div class="stat-num">'+types['指令下发']+'</div><div class="stat-txt">指令下发</div></div></div></div>'
+            +'<div class="layui-col-md3"><div class="stat-card stat-teal"><div class="stat-icon"><i class="layui-icon layui-icon-ok"></i></div><div class="stat-info"><div class="stat-num">'+types['指令响应']+'</div><div class="stat-txt">指令响应</div></div></div></div>';
+        $('#stat-cards').html(h);
+
+        // 分钟趋势
+        var hh=[],hc=[];
+        for(var i=0;i<d.minute_stats.length;i++){hh.push(d.minute_stats[i].minute);hc.push(d.minute_stats[i].cnt);}
+        renderChart('chart-hour','line',hh,hc,'操作次数');
+
+        // 设备活跃
+        var dn=[],dv=[];
+        for(var i=0;i<d.device_stats.length;i++){dn.push(d.device_stats[i].name);dv.push(d.device_stats[i].value);}
+        renderChart('chart-device','bar',dn.reverse(),dv.reverse(),'');
+
+        // 类型分布
+        var tn=[],tv=[];
+        for(var i=0;i<d.type_stats.length;i++){tn.push(d.type_stats[i].name);tv.push(d.type_stats[i].value);}
+        renderChart('chart-type','pie',tn,tv,'');
+    });
+    }
+    loadStats();
+    setInterval(loadStats, 10000);
+
+    function renderChart(id,type,labels,values,ylabel){
+        var dom=document.getElementById(id);
+        if(!dom)return;
+        var chart=echarts.init(dom);
+        if(type==='pie'){
+            var data=[];
+            for(var i=0;i<labels.length;i++)data.push({name:labels[i],value:values[i]});
+            chart.setOption({tooltip:{trigger:'item'},legend:{bottom:0},series:[{type:'pie',radius:['40%','70%'],data:data,label:{formatter:'{b}: {c}'}}]});
+        }else if(type==='bar'){
+            chart.setOption({tooltip:{trigger:'axis'},grid:{left:'3%',right:'4%',bottom:'3%',containLabel:true},xAxis:{type:'category',data:labels},yAxis:{type:'value',name:ylabel},series:[{type:'bar',data:values,itemStyle:{color:'#1E9FFF'}}]});
+        }else{
+            chart.setOption({tooltip:{trigger:'axis'},grid:{left:'3%',right:'4%',bottom:'3%',containLabel:true},xAxis:{type:'category',data:labels},yAxis:{type:'value',name:ylabel},series:[{type:'line',data:values,itemStyle:{color:'#00BFA5'},areaStyle:{color:'rgba(0,191,165,0.1)'}}]});
+        }
+        window.addEventListener('resize',function(){chart.resize();});
+    }
+});  // end layui.use
+</script>
+<style>
+.chart-card{background:#fff;border-radius:12px;padding:20px 24px;box-shadow:0 2px 8px rgba(0,0,0,0.04);}
+.chart-title{font-size:15px;font-weight:600;color:#333;margin-bottom:14px;}
+</style>
+{% end %}

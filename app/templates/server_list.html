@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% end %}
+{% block body %}
+<div class="layui-layout layui-layout-admin">
+    <div class="layui-header">
+        <div class="layui-logo">cnAgentOS</div>
+        <ul class="layui-nav layui-layout-right">
+            <li class="layui-nav-item">
+                <a href="javascript:;">{{ current_user }}</a>
+                <dl class="layui-nav-child">
+                    <dd><a href="javascript:;" onclick="document.getElementById('logout-form').submit()">退出登录</a></dd>
+                </dl>
+            </li>
+        </ul>
+    </div>
+    <div class="layui-side layui-bg-black">
+        <ul class="layui-nav layui-nav-tree">
+            <li class="layui-nav-item"><a href="/"><i class="layui-icon layui-icon-home"></i> 首页</a></li>
+            <li class="layui-nav-item"><a href="/users"><i class="layui-icon layui-icon-user"></i> 用户管理</a></li>
+            <li class="layui-nav-item"><a href="/devices"><i class="layui-icon layui-icon-set"></i> 设备管理</a></li>
+            <li class="layui-nav-item"><a href="/models"><i class="layui-icon layui-icon-engine"></i> 模型引擎</a></li>
+            <li class="layui-nav-item"><a href="/apis"><i class="layui-icon layui-icon-link"></i> 接口管理</a></li>
+            <li class="layui-nav-item layui-this"><a href="/servers"><i class="layui-icon layui-icon-util"></i> 服务器管理</a></li>
+            <li class="layui-nav-item"><a href="/reports"><i class="layui-icon layui-icon-chart"></i> 数据报表</a></li>
+        </ul>
+    </div>
+    <div class="layui-body" style="padding: 20px; background: #f5f7fa;">
+        <!-- 搜索栏 -->
+        <div class="search-bar">
+            <input id="search-kw" class="search-input" placeholder="搜索服务器名称 / 端口 / 备注">
+            <button class="search-btn" onclick="doSearch()"><i class="layui-icon layui-icon-search"></i> 查询</button>
+            <button class="reset-btn" onclick="$('#search-kw').val('');doSearch();"><i class="layui-icon layui-icon-refresh"></i> 重置</button>
+            <button class="add-btn" onclick="openForm()"><i class="layui-icon layui-icon-add-1"></i> 新增</button>
+        </div>
+
+        <div id="server-pager" style="margin-bottom:12px;"></div>
+        <div id="server-cards"></div>
+    </div>
+</div>
+<form id="logout-form" method="post" action="/auth/logout" style="display:none">{% module xsrf_form_html() %}</form>
+
+<div id="form-layer" style="display:none; padding:24px;">
+    <form class="layui-form" lay-filter="sForm">
+        <input type="hidden" name="id">
+        <div class="layui-form-item"><label class="layui-form-label">名称</label><div class="layui-input-block"><input name="name" class="layui-input" lay-verify="required"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">端口</label><div class="layui-input-block"><input name="port" class="layui-input" lay-verify="required|number" placeholder="如 18888"></div></div>
+    </form>
+</div>
+{% end %}
+
+{% block script %}
+<script>
+layui.use(['laypage','form','layer'],function(){
+    var laypage=layui.laypage,form=layui.form,layer=layui.layer,$=layui.$,p=1;
+    function load(pg){var sel={};$(".cmd-device").each(function(){var t=$(this);if(t.val())sel[t.closest(".cmd-bar").data("sid")]=t.val();});
+        p=pg||1;
+        $.get('/api/servers',{page:p,limit:6,keyword:$('#search-kw').val()},function(r){
+            var h='';
+            if(!r.data||r.data.length==0)h='<div class="empty-state"><i class="layui-icon layui-icon-util" style="font-size:48px;color:#ccc;"></i><p>暂无服务器，点击右上角"新增"创建</p></div>';
+            for(var i=0;i<r.data.length;i++){
+                var d=r.data[i],running=d.running,barColor=running?'#00BFA5':'#ccc';
+                var badgeCls=running?'badge-run':'badge-stop',badgeTxt=running?'运行中':'已停止';
+                h+='<div class="iot-card">'
+                    +'<div class="card-left-bar" style="background:'+barColor+';"></div>'
+                    +'<div class="card-body">'
+                    +'<div class="card-header">'
+                    +'<div class="card-title-row">'
+                    +'<span class="card-badge '+badgeCls+'">'+badgeTxt+'</span>'
+                    +'<span class="card-name">'+d.name+'</span>'
+                    +'</div>'
+                    +'<div class="card-addr">'+d.port+'</div>'
+                    +'<div class="card-icon"><i class="layui-icon layui-icon-send"></i></div>'
+                    +'</div>'
+                    +'<div class="card-stats">'
+                    +'<div class="stat-block">'
+                    +'<div class="stat-label">上线设备数</div>'
+                    +'<div class="stat-value">'+d.device_count+'</div>';
+                if(d.devices&&d.devices.length>0){
+                    h+='<div class="stat-tags">';
+                    for(var j=0;j<Math.min(d.devices.length,3);j++)h+='<span class="tag-device">'+d.devices[j]+'</span>';
+                    if(d.devices.length>3)h+='<span class="tag-device">+'+(d.devices.length-3)+'</span>';
+                    h+='</div>';
+                }
+                h+='</div>'
+                    +'<div class="stat-block">'
+                    +'<div class="stat-label">配置状态</div>'
+                    +'<div class="stat-value" style="color:'+(running?'#00BFA5':'#999')+';">'+(running?'启用':'未启用')+'</div>'
+                    +'<div style="font-size:12px;color:#999;">创建于 '+d.created_at+'</div>'
+                    +'</div>'
+                    +'</div>';
+                // 终端日志区
+                h+='<div class="card-console" id="console-'+d.id+'">';
+                if(d.logs&&d.logs.length>0){
+                    for(var k=0;k<d.logs.length;k++){
+                        var lg=d.logs[k],cl='cl-'+lg.cls;
+                        h+='<div class="console-line"><span class="cl-time">'+lg.time+'</span> '+lg.text+'</div>';
+                    }
+                } else {
+                    h+='<div class="console-line"><span class="cl-time">--:--:--</span> <span class="cl-warn">等待</span> 等待设备连接...</div>';
+                }
+                h+='</div>';
+                // 指令下发栏
+                if(d.running && d.devices&&d.devices.length>0){
+                    h+='<div class="cmd-bar" data-sid="'+d.id+'">'
+                        +'<select class="cmd-device"><option value="">选择设备</option>';
+                    for(var k=0;k<d.devices.length;k++){
+                        h+='<option value="'+d.devices[k]+'">'+d.devices[k]+'</option>';
+                    }
+                    h+='</select>'
+                        +'<button class="cmd-btn cmd-on" data-cmd="on">开灯</button>'
+                        +'<button class="cmd-btn cmd-off" data-cmd="off">关灯</button>'
+                        +'<button class="cmd-btn cmd-auto" data-cmd="auto">自动</button>'
+                        +'<button class="cmd-btn cmd-manual" data-cmd="manual">手动</button>'
+                        +'<button class="cmd-btn cmd-status" data-cmd="status">状态</button>'
+                        +'<button class="cmd-btn cmd-info" data-cmd="light">光敏</button>'
+                        +'<button class="cmd-btn cmd-info" data-cmd="human">人体</button>'
+                        +'<button class="cmd-btn cmd-info" data-cmd="sensor">传感器</button>'
+                        +'<button class="cmd-btn cmd-info" data-cmd="ip">IP</button>'
+                        +'<button class="cmd-btn cmd-info" data-cmd="box_id">ID</button>'
+                        +'<button class="cmd-btn cmd-screen" data-cmd="screen_on">亮屏</button>'
+                        +'<button class="cmd-btn cmd-screen" data-cmd="screen_off">息屏</button>'
+                        +'<button class="cmd-btn cmd-screen" data-cmd="screen_invert">反色</button>'
+                        +'<button class="cmd-btn cmd-screen" data-cmd="screen_normal">正常</button>'
+                        +'<button class="cmd-btn cmd-help" data-cmd="help">帮助</button>'
+                        +'</div>';
+                }
+                h+='<div class="card-actions">';
+                if(running){
+                    h+='<button class="layui-btn layui-btn-sm layui-btn-warm" onclick="toggleServer('+d.id+',\'stop\')"><i class="layui-icon layui-icon-pause"></i> 停用</button>';
+                } else {
+                    h+='<button class="layui-btn layui-btn-sm" style="background:#00BFA5;border-color:#00BFA5;color:#fff;" onclick="toggleServer('+d.id+',\'start\')"><i class="layui-icon layui-icon-play"></i> 启用</button>';
+                }
+                h+='<button class="layui-btn layui-btn-sm layui-btn-normal" onclick="openForm('+d.id+')"><i class="layui-icon layui-icon-edit"></i> 编辑</button>'
+                    +'<button class="layui-btn layui-btn-sm layui-btn-danger" onclick="delServer('+d.id+')"><i class="layui-icon layui-icon-delete"></i> 删除</button>'
+                    +'</div></div></div>';
+            }
+            $('#server-cards').html(h);for(var sid in sel){var dd=$('.cmd-bar[data-sid='+sid+'] .cmd-device');if(dd.length)dd.val(sel[sid]);}$('.card-console').each(function(){this.scrollTop=this.scrollHeight;});
+            laypage.render({elem:'server-pager',count:r.count,limit:6,curr:p,layout:['count','prev','page','next','skip'],jump:function(o,f){if(!f)load(o.curr);}});
+        });
+    }
+    window.doSearch=function(){load(1);};
+    window.openForm=function(id){
+        form.val('sForm',{id:'',name:'',port:''});
+        if(id){$.get('/api/servers?page=1&limit=100',function(r){for(var i=0;i<r.data.length;i++)if(r.data[i].id==id){var d=r.data[i];form.val('sForm',{id:d.id,name:d.name,port:String(d.port)});break;}form.render(null,'sForm');});}
+        layer.open({type:1,title:id?'编辑服务器':'新增服务器',area:['500px','300px'],content:$('#form-layer'),btn:['保存','取消'],yes:function(i){
+            var d=form.val('sForm');d._xsrf=$('input[name="_xsrf"]').val();
+            $.ajax({url:'/api/servers',type:d.id?'PUT':'POST',data:d,dataType:'json',success:function(r){
+                if(r.code==0){layer.msg(r.msg,{icon:1});load(p);layer.close(i);}else layer.msg(r.msg,{icon:2});
+            }});
+        }});
+    };
+    window.toggleServer=function(id,action){
+        $.post('/api/servers/toggle',{id:id,action:action,_xsrf:$('input[name="_xsrf"]').val()},function(r){
+            r=JSON.parse(r);layer.msg(r.msg,{icon:r.code==0?1:2});load(p);
+        });
+    };
+    window.delServer=function(id){
+        layer.confirm('确定删除该服务器？',{icon:3},function(i){
+            $.ajax({url:'/api/servers',type:'DELETE',data:{id:id,_xsrf:$('input[name="_xsrf"]').val()},success:function(r){
+                r=JSON.parse(r);layer.msg(r.msg);load(p);
+            }});layer.close(i);
+        });
+    };
+    $(document).on('click','.cmd-btn',function(){
+        var btn=$(this),sid=btn.closest('.cmd-bar').data('sid'),
+            box_id=btn.siblings('.cmd-device').val(),cmd=btn.data('cmd');
+        if(!box_id){layer.msg('请先选择设备',{icon:2});return;}
+        $.post('/api/servers/command',{server_id:sid,box_id:box_id,cmd:cmd,_xsrf:$('input[name="_xsrf"]').val()},function(r){
+            r=JSON.parse(r);layer.msg(r.msg,{icon:r.code==0?1:2});load(p);
+        });
+    });
+    $('#search-kw').on('keydown',function(e){if(e.keyCode==13)doSearch();});
+    load(1);
+    setInterval(function(){load(p);}, 5000);
+});
+</script>
+<style>
+.search-bar {display:flex;gap:10px;align-items:center;margin-bottom:20px;background:#fff;padding:14px 20px;border-radius:10px;box-shadow:0 1px 6px rgba(0,0,0,0.06);}
+.search-input {flex:1;max-width:380px;height:38px;border:1px solid #e6e6e6;border-radius:6px;padding:0 12px;font-size:14px;outline:none;transition:border-color 0.3s;}
+.search-input:focus {border-color:#00BFA5;}
+.search-btn {height:38px;padding:0 20px;background:#00BFA5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;}
+.reset-btn {height:38px;padding:0 20px;background:#fff;color:#666;border:1px solid #e6e6e6;border-radius:6px;cursor:pointer;font-size:14px;margin-left:0;}
+.add-btn {height:38px;padding:0 20px;background:#2196F3;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;margin-left:auto;}
+.empty-state {text-align:center;padding:80px 0;color:#999;}
+
+.iot-card {display:flex;background:#fff;border-radius:12px;margin-bottom:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.06);transition:all 0.3s;}
+.iot-card:hover {box-shadow:0 4px 24px rgba(0,0,0,0.1);}
+.card-left-bar {width:4px;flex-shrink:0;}
+.card-body {flex:1;padding:0;overflow:hidden;}
+.card-header {display:flex;align-items:flex-start;padding:20px 24px 0;position:relative;}
+.card-title-row {display:flex;align-items:center;gap:10px;flex:1;}
+.card-badge {display:inline-block;padding:2px 12px;border-radius:12px;font-size:12px;font-weight:500;}
+.badge-run {background:#E0F7FA;color:#00897B;}
+.badge-stop {background:#F5F5F5;color:#999;}
+.card-name {font-size:20px;font-weight:700;color:#1a1a1a;}
+.card-addr {font-size:13px;color:#666;margin-top:2px;}
+.card-icon {position:absolute;right:24px;top:16px;font-size:28px;color:#E0F2F1;}
+
+.card-stats {display:flex;gap:60px;padding:16px 24px;}
+.stat-block {flex:1;}
+.stat-label {font-size:12px;color:#666;margin-bottom:4px;}
+.stat-value {font-size:24px;font-weight:700;color:#1a1a1a;}
+.stat-tags {margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;}
+.tag-device {display:inline-block;padding:1px 10px;background:#E3F2FD;color:#1565C0;border-radius:4px;font-size:12px;}
+
+.card-console {margin:0 24px 16px;background:#0D1117;border-radius:8px;padding:14px 18px;font-family:"Cascadia Code","Consolas",monospace;font-size:13px;max-height:140px;overflow-y:auto;line-height:1.9;color:#C9D1D9;}
+.console-line {white-space:nowrap;}
+.cl-time {color:#8B949E;}
+.cl-sys {color:#7EE787;font-weight:600;}
+.cl-info {color:#79C0FF;}
+.cl-ok {color:#56D364;}
+.cl-warn {color:#E3B341;}
+.cl-err {color:#F85149;}
+
+.cmd-bar {display:flex;gap:6px;align-items:center;padding:8px 24px;background:#F8FAFB;border-top:1px solid #F0F0F0;flex-wrap:wrap;}
+.cmd-device {height:32px;border:1px solid #ddd;border-radius:4px;padding:0 8px;font-size:13px;outline:none;min-width:130px;}
+.cmd-btn {height:30px;padding:0 12px;border:none;border-radius:4px;font-size:12px;font-weight:500;cursor:pointer;color:#fff;transition:opacity 0.2s;}
+.cmd-btn:hover {opacity:0.85;}
+.cmd-on {background:#4CAF50;}
+.cmd-off {background:#F44336;}
+.cmd-auto {background:#2196F3;}
+.cmd-manual {background:#FF9800;}
+.cmd-status {background:#607D8B;}
+.cmd-screen {background:#9C27B0;}
+.cmd-info {background:#00BCD4;}
+.cmd-help {background:#795548;}
+
+.card-actions {display:flex;gap:8px;padding:12px 24px;background:#FAFAFA;border-top:1px solid #F0F0F0;justify-content:flex-end;}
+</style>
+{% end %}

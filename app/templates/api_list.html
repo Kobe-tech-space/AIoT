@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% end %}
+{% block body %}
+<div class="layui-layout layui-layout-admin">
+    <div class="layui-header">
+        <div class="layui-logo">cnAgentOS</div>
+        <ul class="layui-nav layui-layout-right">
+            <li class="layui-nav-item">
+                <a href="javascript:;">{{ current_user }}</a>
+                <dl class="layui-nav-child">
+                    <dd><a href="javascript:;" onclick="document.getElementById('logout-form').submit()">退出登录</a></dd>
+                </dl>
+            </li>
+        </ul>
+    </div>
+    <div class="layui-side layui-bg-black">
+        <ul class="layui-nav layui-nav-tree">
+            <li class="layui-nav-item"><a href="/"><i class="layui-icon layui-icon-home"></i> 首页</a></li>
+            <li class="layui-nav-item"><a href="/users"><i class="layui-icon layui-icon-user"></i> 用户管理</a></li>
+            <li class="layui-nav-item"><a href="/devices"><i class="layui-icon layui-icon-set"></i> 设备管理</a></li>
+            <li class="layui-nav-item"><a href="/models"><i class="layui-icon layui-icon-engine"></i> 模型引擎</a></li>
+            <li class="layui-nav-item layui-this"><a href="/apis"><i class="layui-icon layui-icon-link"></i> 接口管理</a></li>
+            <li class="layui-nav-item"><a href="/servers"><i class="layui-icon layui-icon-util"></i> 服务器管理</a></li>
+            <li class="layui-nav-item"><a href="/reports"><i class="layui-icon layui-icon-chart"></i> 数据报表</a></li>
+        </ul>
+    </div>
+    <div class="layui-body" style="padding: 20px;">
+        <div class="layui-card">
+            <div class="layui-card-header">
+                <div class="layui-row">
+                    <div class="layui-col-md6" style="line-height:36px;">接口列表</div>
+                    <div class="layui-col-md6" style="text-align:right;">
+                        <button class="layui-btn layui-btn-sm" onclick="openForm()"><i class="layui-icon layui-icon-add-1"></i> 新增接口</button>
+                    </div>
+                </div>
+            </div>
+            <div class="layui-card-body">
+                <div class="layui-row" style="margin-bottom:10px;">
+                    <div class="layui-col-md4"><input id="search-kw" class="layui-input" placeholder="搜索名称/类型"></div>
+                    <div class="layui-col-md2" style="padding-left:10px;"><button class="layui-btn" onclick="doSearch()">搜索</button></div>
+                </div>
+                <table id="api-table" lay-filter="apiTable"></table>
+            </div>
+        </div>
+    </div>
+</div>
+<form id="logout-form" method="post" action="/auth/logout" style="display:none">{% module xsrf_form_html() %}</form>
+
+<div id="form-layer" style="display:none; padding:20px;">
+    <form class="layui-form" lay-filter="aForm">
+        <input type="hidden" name="id">
+        <div class="layui-form-item"><label class="layui-form-label">名称</label><div class="layui-input-block"><input name="name" class="layui-input" lay-verify="required"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">类型</label><div class="layui-input-block"><select name="api_type"><option value="天气">天气</option><option value="音乐">音乐</option><option value="新闻">新闻</option><option value="其他">其他</option></select></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">地址</label><div class="layui-input-block"><input name="url" class="layui-input" lay-verify="required"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">API Key</label><div class="layui-input-block"><input name="api_key" class="layui-input" placeholder="留空不修改"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">参数</label><div class="layui-input-block"><input name="params" class="layui-input" placeholder="JSON字符串"></div></div>
+    </form>
+</div>
+{% end %}
+
+{% block script %}
+<script>
+layui.use(['table','form','layer'],function(){
+    var table=layui.table,form=layui.form,layer=layui.layer,$=layui.$;
+    table.render({elem:'#api-table',url:'/api/external',page:true,limit:20,limits:[20,50,100],cols:[[
+        {field:'id',title:'ID',width:60},
+        {field:'name',title:'名称',width:120},
+        {field:'api_type',title:'类型',width:80,templet:function(d){return '<span class="layui-badge layui-bg-blue">'+d.api_type+'</span>';}},
+        {field:'url',title:'地址',minWidth:200},
+        {field:'api_key',title:'Key',width:130},
+        {field:'params',title:'参数',width:120},
+        {field:'status',title:'状态',width:70,templet:function(d){return d.status==1?'<span style="color:#5fb878;">启用</span>':'<span style="color:#ff5722;">禁用</span>';}},
+        {title:'操作',width:180,templet:function(d){
+            return '<button class="layui-btn layui-btn-xs" lay-event="edit">编辑</button>'
+                +'<button class="layui-btn layui-btn-xs layui-btn-normal" lay-event="test">测试</button>'
+                +'<button class="layui-btn layui-btn-xs layui-btn-danger" lay-event="del">删除</button>';
+        }}
+    ]],parseData:function(r){return{code:r.code,msg:r.msg,count:r.count,data:r.data};},request:{pageName:'page',limitName:'limit'}});
+
+    window.doSearch=function(){table.reload('api-table',{where:{keyword:$('#search-kw').val()},page:{curr:1}});};
+
+    table.on('tool(apiTable)',function(o){
+        var d=o.data;
+        if(o.event=='edit')openForm(d.id);
+        else if(o.event=='test')testApi(d.id);
+        else if(o.event=='del'){layer.confirm('确定删除？',{icon:3},function(i){
+            $.ajax({url:'/api/external',type:'DELETE',data:{id:d.id,_xsrf:$('input[name="_xsrf"]').val()},success:function(r){r=JSON.parse(r);layer.msg(r.msg);table.reload('api-table');}});layer.close(i);
+        });}
+    });
+
+    window.openForm=function(id){
+        form.val('aForm',{id:'',name:'',api_type:'天气',url:'',api_key:'',params:'{}'});
+        if(id){$.get('/api/external?page=1&limit=100',function(r){for(var i=0;i<r.data.length;i++)if(r.data[i].id==id){var d=r.data[i];form.val('aForm',{id:d.id,name:d.name,api_type:d.api_type,url:d.url,api_key:'',params:d.params});break;}form.render(null,'aForm');});}
+        layer.open({type:1,title:id?'编辑接口':'新增接口',area:['550px','430px'],content:$('#form-layer'),btn:['保存','取消'],yes:function(i){
+            var d=form.val('aForm');d._xsrf=$('input[name="_xsrf"]').val();
+            $.ajax({url:'/api/external',type:d.id?'PUT':'POST',data:d,dataType:'json',success:function(r){
+                if(r.code==0){layer.msg(r.msg,{icon:1});table.reload('api-table');layer.close(i);}else layer.msg(r.msg,{icon:2});
+            }});
+        }});
+    };
+
+    window.testApi=function(id){
+        layer.load();
+        $.post('/api/external/test',{id:id,_xsrf:$('input[name="_xsrf"]').val()},function(r){
+            layer.closeAll();
+            r=JSON.parse(r);
+            if(r.code==0)layer.alert('<div style="color:#5fb878;">'+r.msg+'</div><pre style="max-height:200px;overflow:auto;font-size:12px;">'+r.body+'</pre>',{title:'测试结果'});
+            else layer.msg(r.msg,{icon:2});
+        });
+    };
+
+    $('#search-kw').on('keydown',function(e){if(e.keyCode==13)doSearch();});
+});
+</script>
+{% end %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% end %}
+{% block body %}
+<div class="login-wrapper">
+    <div class="layui-card login-card">
+        <div class="layui-card-header">
+            <h2>用户注册</h2>
+        </div>
+        <div class="layui-card-body">
+            {% if error %}
+            <div class="layui-bg-red login-error">{{ error }}</div>
+            {% end %}
+
+            <form class="layui-form" method="post" action="/auth/register">
+                {% module xsrf_form_html() %}
+                <div class="layui-form-item">
+                    <input name="username" placeholder="用户名 *" autocomplete="username"
+                           class="layui-input" lay-verify="required">
+                </div>
+                <div class="layui-form-item">
+                    <input name="nickname" placeholder="昵称 *" autocomplete="nickname"
+                           class="layui-input" lay-verify="required">
+                </div>
+                <div class="layui-form-item">
+                    <input name="phone" placeholder="手机号" autocomplete="tel"
+                           class="layui-input">
+                </div>
+                <div class="layui-form-item">
+                    <input name="password" type="password" placeholder="密码 *"
+                           autocomplete="new-password"
+                           class="layui-input" lay-verify="required">
+                </div>
+                <div class="layui-form-item">
+                    <input name="password2" type="password" placeholder="确认密码 *"
+                           autocomplete="new-password"
+                           class="layui-input" lay-verify="required">
+                </div>
+                <div class="layui-form-item">
+                    <button type="submit" class="layui-btn layui-btn-fluid layui-btn-normal">
+                        注 册
+                    </button>
+                </div>
+            </form>
+            <div class="login-link">
+                <a href="/auth/login">已有账号？返回登录</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% end %}

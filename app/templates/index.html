@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% end %}
+{% block body %}
+<div class="layui-layout layui-layout-admin">
+    <div class="layui-header">
+        <div class="layui-logo">cnAgentOS</div>
+        <ul class="layui-nav layui-layout-right">
+            <li class="layui-nav-item">
+                <a href="javascript:;">{{ username }}</a>
+                <dl class="layui-nav-child">
+                    <dd><a href="javascript:;" onclick="document.getElementById('logout-form').submit()">退出登录</a></dd>
+                </dl>
+            </li>
+        </ul>
+    </div>
+    <div class="layui-side layui-bg-black">
+        <ul class="layui-nav layui-nav-tree">
+            <li class="layui-nav-item layui-this"><a href="/"><i class="layui-icon layui-icon-home"></i> 首页</a></li>
+            <li class="layui-nav-item"><a href="/users"><i class="layui-icon layui-icon-user"></i> 用户管理</a></li>
+            <li class="layui-nav-item"><a href="/devices"><i class="layui-icon layui-icon-set"></i> 设备管理</a></li>
+            <li class="layui-nav-item"><a href="/models"><i class="layui-icon layui-icon-engine"></i> 模型引擎</a></li>
+            <li class="layui-nav-item"><a href="/apis"><i class="layui-icon layui-icon-link"></i> 接口管理</a></li>
+            <li class="layui-nav-item"><a href="/servers"><i class="layui-icon layui-icon-util"></i> 服务器管理</a></li>
+            <li class="layui-nav-item"><a href="/reports"><i class="layui-icon layui-icon-chart"></i> 数据报表</a></li>
+        </ul>
+    </div>
+    <div class="layui-body" style="background:#f5f7fa;padding:24px;">
+
+        <!-- 欢迎横幅 -->
+        <div class="welcome-banner">
+            <div class="welcome-text">
+                <div class="welcome-greeting">欢迎回来，{{ username }}</div>
+                <div class="welcome-sub">cnAgentOS AIoT 设备管理平台 — 掌握每一台设备的脉搏</div>
+            </div>
+            <div class="welcome-icon"><i class="layui-icon layui-icon-home" style="font-size:56px;color:rgba(255,255,255,0.3);"></i></div>
+        </div>
+
+        <!-- 统计卡片 -->
+        <div class="layui-row layui-col-space15">
+            <div class="layui-col-md3">
+                <div class="stat-card stat-blue" onclick="location.href='/users'">
+                    <div class="stat-icon"><i class="layui-icon layui-icon-user"></i></div>
+                    <div class="stat-info"><div class="stat-num" id="count-users">-</div><div class="stat-txt">用户总数</div></div>
+                </div>
+            </div>
+            <div class="layui-col-md3">
+                <div class="stat-card stat-green" onclick="location.href='/devices'">
+                    <div class="stat-icon"><i class="layui-icon layui-icon-set"></i></div>
+                    <div class="stat-info"><div class="stat-num"><span id="count-online">-</span> / <span id="count-devices">-</span></div><div class="stat-txt">在线 / 总设备</div></div>
+                </div>
+            </div>
+            <div class="layui-col-md3">
+                <div class="stat-card stat-teal" onclick="location.href='/servers'">
+                    <div class="stat-icon"><i class="layui-icon layui-icon-util"></i></div>
+                    <div class="stat-info"><div class="stat-num"><span id="count-srv-run">-</span> / <span id="count-servers">-</span></div><div class="stat-txt">运行 / 总服务器</div></div>
+                </div>
+            </div>
+            <div class="layui-col-md3">
+                <div class="stat-card stat-orange" onclick="location.href='/models'">
+                    <div class="stat-icon"><i class="layui-icon layui-icon-engine"></i></div>
+                    <div class="stat-info"><div class="stat-num"><span id="count-models">-</span></div><div class="stat-txt">AI 模型数</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 快捷入口 -->
+        <div class="quick-section">
+            <div class="quick-title">快捷入口</div>
+            <div class="layui-row layui-col-space15">
+                <div class="layui-col-md4"><a href="/users" class="quick-link"><i class="layui-icon layui-icon-user"></i> 用户管理 <span class="quick-desc">账号、权限、启禁用</span></a></div>
+                <div class="layui-col-md4"><a href="/devices" class="quick-link"><i class="layui-icon layui-icon-set"></i> 设备管理 <span class="quick-desc">ESP32 终端注册配置</span></a></div>
+                <div class="layui-col-md4"><a href="/models" class="quick-link"><i class="layui-icon layui-icon-engine"></i> 模型引擎 <span class="quick-desc">AI 对话测试与调参</span></a></div>
+                <div class="layui-col-md4"><a href="/apis" class="quick-link"><i class="layui-icon layui-icon-link"></i> 接口管理 <span class="quick-desc">天气/音乐/新闻 API</span></a></div>
+                <div class="layui-col-md4"><a href="/servers" class="quick-link"><i class="layui-icon layui-icon-util"></i> 服务器管理 <span class="quick-desc">TCP Server 启停监控</span></a></div>
+                <div class="layui-col-md4"><a href="/reports" class="quick-link"><i class="layui-icon layui-icon-chart"></i> 数据报表 <span class="quick-desc">操作日志与ECharts统计</span></a></div>
+            </div>
+        </div>
+    </div>
+</div>
+<form id="logout-form" method="post" action="/auth/logout" style="display:none">{% module xsrf_form_html() %}</form>
+{% end %}
+
+{% block script %}
+<script>
+layui.use('element',function(){
+    layui.element.render();
+    var $=layui.$;
+    function loadDashboard(){
+        $.get('/api/dashboard',function(d){
+            $('#count-users').text(d.user_count);
+            $('#count-devices').text(d.device_count);
+            $('#count-online').text(d.online_count);
+            $('#count-models').text(d.model_count);
+            $('#count-servers').text(d.server_count);
+            $('#count-srv-run').text(d.running_servers);
+        },'json');
+    }
+    loadDashboard();
+    setInterval(loadDashboard, 5000);
+});
+</script>
+<style>
+.welcome-banner {display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#1E9FFF,#00BFA5);border-radius:14px;padding:28px 36px;margin-bottom:20px;color:#fff;}
+.welcome-greeting {font-size:22px;font-weight:700;margin-bottom:6px;}
+.welcome-sub {font-size:14px;opacity:0.85;}
+
+.stat-card {display:flex;align-items:center;gap:16px;background:#fff;border-radius:12px;padding:20px 24px;cursor:pointer;transition:all 0.3s;box-shadow:0 2px 8px rgba(0,0,0,0.04);}
+.stat-card:hover {transform:translateY(-3px);box-shadow:0 6px 20px rgba(0,0,0,0.1);}
+.stat-icon {width:50px;height:50px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;color:#fff;}
+.stat-blue .stat-icon {background:linear-gradient(135deg,#42A5F5,#1E88E5);}
+.stat-green .stat-icon {background:linear-gradient(135deg,#66BB6A,#43A047);}
+.stat-teal .stat-icon {background:linear-gradient(135deg,#26A69A,#00897B);}
+.stat-orange .stat-icon {background:linear-gradient(135deg,#FFA726,#FB8C00);}
+.stat-num {font-size:24px;font-weight:700;color:#333;}
+.stat-txt {font-size:13px;color:#999;margin-top:2px;}
+
+.quick-section {margin-top:24px;}
+.quick-title {font-size:16px;font-weight:600;color:#333;margin-bottom:14px;}
+.quick-link {display:flex;align-items:center;gap:10px;background:#fff;border-radius:10px;padding:16px 20px;margin-bottom:15px;color:#333;font-size:15px;font-weight:500;text-decoration:none;transition:all 0.3s;box-shadow:0 2px 8px rgba(0,0,0,0.04);}
+.quick-link:hover {background:#1E9FFF;color:#fff;transform:translateX(4px);}
+.quick-link:hover .quick-desc {color:rgba(255,255,255,0.75);}
+.quick-desc {font-size:12px;color:#999;font-weight:400;margin-left:auto;}
+</style>
+{% end %}

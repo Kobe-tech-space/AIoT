@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% end %}
+{% block body %}
+<div class="layui-layout layui-layout-admin">
+    <div class="layui-header">
+        <div class="layui-logo">cnAgentOS</div>
+        <ul class="layui-nav layui-layout-right">
+            <li class="layui-nav-item">
+                <a href="javascript:;">{{ current_user }}</a>
+                <dl class="layui-nav-child">
+                    <dd><a href="javascript:;" onclick="document.getElementById('logout-form').submit()">退出登录</a></dd>
+                </dl>
+            </li>
+        </ul>
+    </div>
+
+    <div class="layui-side layui-bg-black">
+        <ul class="layui-nav layui-nav-tree">
+            <li class="layui-nav-item">
+                <a href="/"><i class="layui-icon layui-icon-home"></i> 首页</a>
+            </li>
+            <li class="layui-nav-item layui-this">
+                <a href="/users"><i class="layui-icon layui-icon-user"></i> 用户管理</a>
+            </li>
+            <li class="layui-nav-item">
+                <a href="/devices"><i class="layui-icon layui-icon-set"></i> 设备管理</a>
+            </li>
+            <li class="layui-nav-item">
+                <a href="/models"><i class="layui-icon layui-icon-engine"></i> 模型引擎</a>
+            </li>
+            <li class="layui-nav-item">
+                <a href="/apis"><i class="layui-icon layui-icon-link"></i> 接口管理</a>
+            </li>
+            <li class="layui-nav-item">
+                <a href="/servers"><i class="layui-icon layui-icon-util"></i> 服务器管理</a>
+            </li>
+            <li class="layui-nav-item"><a href="/reports"><i class="layui-icon layui-icon-chart"></i> 数据报表</a>
+            </li>
+        </ul>
+    </div>
+
+    <div class="layui-body" style="padding: 20px;">
+
+        <!-- 搜索 + 新增 -->
+        <div class="layui-card">
+            <div class="layui-card-header">
+                <div class="layui-row">
+                    <div class="layui-col-md6" style="line-height:36px;">用户列表</div>
+                    <div class="layui-col-md6" style="text-align:right;">
+                        <button class="layui-btn layui-btn-sm" onclick="openUserForm()">
+                            <i class="layui-icon layui-icon-add-1"></i> 新增用户
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="layui-card-body">
+                <div class="layui-form layui-row" style="margin-bottom:10px;">
+                    <div class="layui-col-md4">
+                        <input id="search-keyword" class="layui-input" placeholder="搜索用户名/昵称/手机号">
+                    </div>
+                    <div class="layui-col-md2" style="padding-left:10px;">
+                        <button class="layui-btn" onclick="doSearch()">搜索</button>
+                    </div>
+                </div>
+                <table id="user-table" lay-filter="userTable"></table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<form id="logout-form" method="post" action="/auth/logout" style="display:none">
+    {% module xsrf_form_html() %}
+</form>
+
+<!-- 新增/编辑弹窗 -->
+<div id="user-form-layer" style="display:none; padding:20px;">
+    <form class="layui-form" lay-filter="userForm">
+        <input type="hidden" name="id">
+        <div class="layui-form-item">
+            <label class="layui-form-label">用户名</label>
+            <div class="layui-input-block">
+                <input name="username" class="layui-input" lay-verify="required">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">昵称</label>
+            <div class="layui-input-block">
+                <input name="nickname" class="layui-input" lay-verify="required">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">手机号</label>
+            <div class="layui-input-block">
+                <input name="phone" class="layui-input">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">密码</label>
+            <div class="layui-input-block">
+                <input name="password" type="password" class="layui-input"
+                       placeholder="留空则不修改">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">管理员</label>
+            <div class="layui-input-block">
+                <input type="checkbox" name="is_admin" lay-skin="switch" lay-text="是|否" value="1">
+            </div>
+        </div>
+    </form>
+</div>
+{% end %}
+
+{% block script %}
+<script>
+layui.use(['table', 'form', 'layer'], function(){
+    var table = layui.table;
+    var form = layui.form;
+    var layer = layui.layer;
+    var $ = layui.$;
+
+    // 渲染表格
+    table.render({
+        elem: '#user-table',
+        url: '/api/users',
+        page: true,
+        limit: 20,
+        limits: [20, 50, 100],
+        cols: [[
+            {field: 'id', title: 'ID', width: 60},
+            {field: 'username', title: '用户名', width: 120},
+            {field: 'nickname', title: '昵称', width: 100},
+            {field: 'phone', title: '手机号', width: 130},
+            {field: 'status', title: '状态', width: 70,
+                templet: function(d){
+                    return d.status == 1
+                        ? '<span style="color:#5fb878;">启用</span>'
+                        : '<span style="color:#ff5722;">禁用</span>';
+                }
+            },
+            {field: 'is_admin', title: '角色', width: 70,
+                templet: function(d){
+                    return d.is_admin == 1
+                        ? '<span style="color:#1e9fff;">管理员</span>'
+                        : '用户';
+                }
+            },
+            {field: 'created_at', title: '注册时间', width: 170},
+            {title: '操作', width: 200, templet: function(d){
+                var toggleText = d.status == 1 ? '禁用' : '启用';
+                var toggleClass = d.status == 1 ? 'layui-btn-warm' : 'layui-btn-normal';
+                return '<button class="layui-btn layui-btn-xs" lay-event="edit">编辑</button>' +
+                    '<button class="layui-btn layui-btn-xs ' + toggleClass + '" lay-event="toggle">' + toggleText + '</button>' +
+                    '<button class="layui-btn layui-btn-xs layui-btn-danger" lay-event="del">删除</button>';
+            }}
+        ]],
+        parseData: function(res){
+            return {
+                "code": res.code,
+                "msg": res.msg,
+                "count": res.count,
+                "data": res.data
+            };
+        },
+        request: {
+            pageName: 'page',
+            limitName: 'limit'
+        }
+    });
+
+    // 搜索
+    window.doSearch = function(){
+        table.reload('user-table', {
+            where: {keyword: $('#search-keyword').val()},
+            page: {curr: 1}
+        });
+    };
+
+    // 新增/编辑弹窗
+    window.openUserForm = function(id){
+        var title = '新增用户';
+        form.val('userForm', {id:'', username:'', nickname:'', phone:'', password:'', is_admin:false});
+
+        if (id){
+            title = '编辑用户';
+            $.get('/api/users?page=1&limit=1&keyword=' + id, function(res){});
+            // 通过 table 缓存获取行数据
+            var rowData = table.cache['user-table'];
+            if (rowData){
+                for (var i=0; i<rowData.length; i++){
+                    if (rowData[i].id == id){
+                        form.val('userForm', {
+                            id: rowData[i].id,
+                            username: rowData[i].username,
+                            nickname: rowData[i].nickname,
+                            phone: rowData[i].phone,
+                            password: '',
+                            is_admin: rowData[i].is_admin == 1
+                        });
+                        break;
+                    }
+                }
+            }
+            form.render(null, 'userForm');
+        }
+
+        layer.open({
+            type: 1,
+            title: title,
+            area: ['500px', '460px'],
+            content: $('#user-form-layer'),
+            btn: ['保存', '取消'],
+            yes: function(index){
+                var data = form.val('userForm');
+                if (!data.username || !data.nickname){
+                    layer.msg('用户名和昵称不能为空', {icon: 2});
+                    return;
+                }
+                var url = '/api/users';
+                var method = 'POST';
+                if (data.id){
+                    method = 'PUT';
+                }
+                // 编辑时如果没有填密码，新增时需要密码
+                if (!data.id && !data.password){
+                    layer.msg('新增用户必须设置密码', {icon: 2});
+                    return;
+                }
+
+                var payload = {
+                    id: data.id || undefined,
+                    username: data.username,
+                    nickname: data.nickname,
+                    phone: data.phone,
+                    password: data.password,
+                    is_admin: data.is_admin ? 1 : 0
+                };
+
+                payload._xsrf = $('input[name="_xsrf"]').val();
+
+                $.ajax({
+                    url: url,
+                    type: method,
+                    data: payload,
+                    dataType: 'json',
+                    success: function(res){
+                        if (res.code == 0){
+                            layer.msg(res.msg, {icon: 1});
+                            table.reload('user-table');
+                            layer.close(index);
+                        } else {
+                            layer.msg(res.msg, {icon: 2});
+                        }
+                    }
+                });
+            }
+        });
+    };
+
+    // 监听表格操作
+    table.on('tool(userTable)', function(obj){
+        var data = obj.data;
+        if (obj.event === 'edit'){
+            openUserForm(data.id);
+        } else if (obj.event === 'toggle'){
+            $.post('/api/users/toggle', {
+                id: data.id,
+                _xsrf: $('input[name="_xsrf"]').val()
+            }, function(res){
+                res = JSON.parse(res);
+                layer.msg(res.msg, {icon: res.code == 0 ? 1 : 2});
+                table.reload('user-table');
+            });
+        } else if (obj.event === 'del'){
+            layer.confirm('确定删除该用户？', {icon: 3}, function(i){
+                $.ajax({
+                    url: '/api/users',
+                    type: 'DELETE',
+                    data: {
+                        id: data.id,
+                        _xsrf: $('input[name="_xsrf"]').val()
+                    },
+                    success: function(res){
+                        res = JSON.parse(res);
+                        layer.msg(res.msg, {icon: res.code == 0 ? 1 : 2});
+                        table.reload('user-table');
+                    }
+                });
+                layer.close(i);
+            });
+        }
+    });
+
+    // 回车搜索
+    $('#search-keyword').on('keydown', function(e){
+        if (e.keyCode == 13) doSearch();
+    });
+});
+</script>
+
+{% end %}

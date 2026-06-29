@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% end %}
+{% block body %}
+<div class="layui-layout layui-layout-admin">
+    <div class="layui-header">
+        <div class="layui-logo">cnAgentOS</div>
+        <ul class="layui-nav layui-layout-right">
+            <li class="layui-nav-item">
+                <a href="javascript:;">{{ current_user }}</a>
+                <dl class="layui-nav-child">
+                    <dd><a href="javascript:;" onclick="document.getElementById('logout-form').submit()">退出登录</a></dd>
+                </dl>
+            </li>
+        </ul>
+    </div>
+
+    <div class="layui-side layui-bg-black">
+        <ul class="layui-nav layui-nav-tree">
+            <li class="layui-nav-item">
+                <a href="/"><i class="layui-icon layui-icon-home"></i> 首页</a>
+            </li>
+            <li class="layui-nav-item">
+                <a href="/users"><i class="layui-icon layui-icon-user"></i> 用户管理</a>
+            </li>
+            <li class="layui-nav-item layui-this">
+                <a href="/devices"><i class="layui-icon layui-icon-set"></i> 设备管理</a>
+            </li>
+            <li class="layui-nav-item">
+                <a href="/models"><i class="layui-icon layui-icon-engine"></i> 模型引擎</a>
+            </li>
+            <li class="layui-nav-item">
+                <a href="/apis"><i class="layui-icon layui-icon-link"></i> 接口管理</a>
+            </li>
+            <li class="layui-nav-item">
+                <a href="/servers"><i class="layui-icon layui-icon-util"></i> 服务器管理</a>
+            </li>
+            <li class="layui-nav-item"><a href="/reports"><i class="layui-icon layui-icon-chart"></i> 数据报表</a>
+            </li>
+        </ul>
+    </div>
+
+    <div class="layui-body" style="padding: 20px;">
+
+        <div class="layui-card">
+            <div class="layui-card-header">
+                <div class="layui-row">
+                    <div class="layui-col-md6" style="line-height:36px;">设备列表</div>
+                    <div class="layui-col-md6" style="text-align:right;">
+                        <button class="layui-btn layui-btn-sm" onclick="openDeviceForm()">
+                            <i class="layui-icon layui-icon-add-1"></i> 新增设备
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="layui-card-body">
+                <div class="layui-row" style="margin-bottom:10px;">
+                    <div class="layui-col-md4">
+                        <input id="search-keyword" class="layui-input" placeholder="搜索设备编号/名称/类别">
+                    </div>
+                    <div class="layui-col-md2" style="padding-left:10px;">
+                        <button class="layui-btn" onclick="doSearch()">搜索</button>
+                    </div>
+                </div>
+                <div id="device-pager"></div>
+                <div id="device-cards" style="margin-top:15px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<form id="logout-form" method="post" action="/auth/logout" style="display:none">
+    {% module xsrf_form_html() %}
+</form>
+
+<!-- 新增/编辑弹窗 -->
+<div id="device-form-layer" style="display:none; padding:20px;">
+    <form class="layui-form" lay-filter="deviceForm">
+        <input type="hidden" name="id">
+        <div class="layui-form-item">
+            <label class="layui-form-label">设备编号</label>
+            <div class="layui-input-block">
+                <input name="box_id" class="layui-input" lay-verify="required" placeholder="如 ESP32-001">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">设备名称</label>
+            <div class="layui-input-block">
+                <input name="name" class="layui-input" lay-verify="required" placeholder="如 客厅传感终端">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">设备类别</label>
+            <div class="layui-input-block">
+                <input name="category" class="layui-input" placeholder="如 ESP32-WiFi">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">管理地址</label>
+            <div class="layui-input-block">
+                <input name="manage_url" class="layui-input" placeholder="http://ip:port">
+            </div>
+        </div>
+        <div class="layui-form-item">
+            <label class="layui-form-label">传感器配置</label>
+            <div class="layui-input-block" id="sensor-list">
+                <div id="sensor-rows"></div>
+                <button type="button" class="layui-btn layui-btn-xs" onclick="addSensor()" style="margin-top:5px;">
+                    <i class="layui-icon layui-icon-add-1"></i> 添加传感器
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% end %}
+
+{% block script %}
+<script>
+layui.use(['laypage', 'form', 'layer'], function(){
+    var laypage = layui.laypage;
+    var form = layui.form;
+    var layer = layui.layer;
+    var $ = layui.$;
+    var currentPage = 1;
+    var currentSensorIndex = 0;
+
+    // 加载设备列表
+    function loadDevices(page){
+        currentPage = page || 1;
+        var keyword = $('#search-keyword').val();
+        $.get('/api/devices', {page: currentPage, limit: 6, keyword: keyword}, function(res){
+            renderCards(res.data);
+            laypage.render({
+                elem: 'device-pager',
+                count: res.count,
+                limit: 6,
+                curr: currentPage,
+                layout: ['count', 'prev', 'page', 'next', 'skip'],
+                jump: function(obj, first){
+                    if (!first) loadDevices(obj.curr);
+                }
+            });
+        });
+    }
+
+    // 渲染卡片
+    function renderCards(data){
+        var html = '<div class="layui-row layui-col-space15">';
+        if (!data || data.length == 0){
+            html = '<div style="text-align:center;padding:60px;color:#999;">暂无设备</div>';
+        }
+        for (var i = 0; i < data.length; i++){
+            var d = data[i];
+            var statusClass = d.status == 1 ? 'device-online' : 'device-offline';
+            var statusText = d.status == 1 ? '在线' : '离线';
+            var sensors = [];
+            try { sensors = JSON.parse(d.sensors); } catch(e) {}
+            var sensorHtml = '';
+            for (var j = 0; j < sensors.length; j++){
+                sensorHtml += '<span class="layui-badge layui-bg-gray" style="margin:2px;">'
+                    + sensors[j].name + '(' + sensors[j].pin + ')</span>';
+            }
+            if (!sensorHtml) sensorHtml = '<span style="color:#999;">未配置</span>';
+
+            html += '<div class="layui-col-md6"><div class="device-card">'
+                + '<div class="device-status ' + statusClass + '">' + statusText + '</div>'
+                + '<div class="device-header">'
+                + '<span class="device-name">' + d.box_id + '</span>'
+                + '<span class="layui-badge layui-bg-blue">' + (d.category || '未分类') + '</span>'
+                + '</div>'
+                + '<div class="device-title">' + (d.name || '-') + '</div>'
+                + '<div class="device-info">管理地址: ' + (d.manage_url || '未设置') + '</div>'
+                + '<div class="device-info">IP: ' + (d.esp32_ip || '未同步') + '</div>'
+                + '<div class="device-sensors">' + sensorHtml + '</div>'
+                + '<div class="device-actions">'
+                + '<button class="layui-btn layui-btn-xs" onclick="openDeviceForm(' + d.id + ')">编辑</button>'
+                + '<button class="layui-btn layui-btn-xs layui-btn-danger" onclick="deleteDevice(' + d.id + ')">删除</button>'
+                + '</div></div></div>';
+
+            // 每2个换行
+            if (i % 2 == 1) html += '</div><div class="layui-row layui-col-space15">';
+        }
+        html += '</div>';
+        $('#device-cards').html(html);
+    }
+
+    // 搜索
+    window.doSearch = function(){
+        loadDevices(1);
+    };
+
+    // 新增/编辑弹窗
+    window.openDeviceForm = function(id){
+        currentSensorIndex = 0;
+        form.val('deviceForm', {id:'', box_id:'', name:'', category:'', manage_url:''});
+        $('#sensor-rows').html('');
+
+        if (id){
+            $.get('/api/devices?page=1&limit=100', function(res){
+                for (var i = 0; i < res.data.length; i++){
+                    if (res.data[i].id == id){
+                        var d = res.data[i];
+                        form.val('deviceForm', {
+                            id: d.id, box_id: d.box_id, name: d.name,
+                            category: d.category, manage_url: d.manage_url
+                        });
+                        var sensors = [];
+                        try { sensors = JSON.parse(d.sensors); } catch(e) {}
+                        for (var j = 0; j < sensors.length; j++){
+                            addSensor(sensors[j].name, sensors[j].pin);
+                        }
+                        break;
+                    }
+                }
+                form.render(null, 'deviceForm');
+            });
+        }
+
+        layer.open({
+            type: 1,
+            title: id ? '编辑设备' : '新增设备',
+            area: ['600px', '520px'],
+            content: $('#device-form-layer'),
+            btn: ['保存', '取消'],
+            yes: function(index){
+                var data = form.val('deviceForm');
+                if (!data.box_id || !data.name){
+                    layer.msg('设备编号和名称不能为空', {icon: 2});
+                    return;
+                }
+                // 收集传感器
+                var sensors = [];
+                $('#sensor-rows .sensor-row').each(function(){
+                    var nm = $(this).find('.sensor-name').val();
+                    var pn = $(this).find('.sensor-pin').val();
+                    if (nm) sensors.push({name: nm, pin: pn});
+                });
+                data.sensors = JSON.stringify(sensors);
+
+                var url = '/api/devices';
+                var method = data.id ? 'PUT' : 'POST';
+                data._xsrf = $('input[name="_xsrf"]').val();
+
+                $.ajax({
+                    url: url, type: method, data: data, dataType: 'json',
+                    success: function(res){
+                        if (res.code == 0){
+                            layer.msg(res.msg, {icon: 1});
+                            loadDevices(currentPage);
+                            layer.close(index);
+                        } else {
+                            layer.msg(res.msg, {icon: 2});
+                        }
+                    }
+                });
+            }
+        });
+    };
+
+    // 添加传感器行
+    window.addSensor = function(name, pin){
+        currentSensorIndex++;
+        var html = '<div class="sensor-row" style="display:flex;gap:8px;margin-top:5px;">'
+            + '<input class="layui-input sensor-name" placeholder="传感器名" value="' + (name || '') + '" style="flex:1;">'
+            + '<input class="layui-input sensor-pin" placeholder="引脚" value="' + (pin || '') + '" style="flex:1;">'
+            + '<button type="button" class="layui-btn layui-btn-xs layui-btn-danger" onclick="$(this).parent().remove()">删</button>'
+            + '</div>';
+        $('#sensor-rows').append(html);
+    };
+
+    // 删除设备
+    window.deleteDevice = function(id){
+        layer.confirm('确定删除该设备？', {icon: 3}, function(i){
+            $.ajax({
+                url: '/api/devices', type: 'DELETE',
+                data: {id: id, _xsrf: $('input[name="_xsrf"]').val()},
+                success: function(res){
+                    res = JSON.parse(res);
+                    layer.msg(res.msg, {icon: res.code == 0 ? 1 : 2});
+                    loadDevices(currentPage);
+                }
+            });
+            layer.close(i);
+        });
+    };
+
+    // 回车搜索
+    $('#search-keyword').on('keydown', function(e){
+        if (e.keyCode == 13) doSearch();
+    });
+
+    loadDevices(1);
+});
+</script>
+{% end %}
