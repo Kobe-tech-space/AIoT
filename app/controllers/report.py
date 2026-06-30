@@ -37,6 +37,23 @@ class ReportApiHandler(BaseHandler):
         self.set_header("Content-Type", "application/json")
         self.write(json.dumps({"code": 0, "count": total, "data": data}, ensure_ascii=False))
 
+    @admin_required
+    def delete(self):
+        """删除日志：单个 /api/reports?id=1  批量 /api/reports?ids=1,2,3"""
+        log_id = self.get_argument("id", "")
+        ids_str = self.get_argument("ids", "")
+
+        if log_id:
+            OperationLogRepository.delete_log(int(log_id))
+            self.write(json.dumps({"code": 0, "msg": "删除成功"}, ensure_ascii=False))
+        elif ids_str:
+            ids = [int(x.strip()) for x in ids_str.split(",") if x.strip()]
+            if ids:
+                OperationLogRepository.delete_logs_batch(ids)
+            self.write(json.dumps({"code": 0, "msg": f"已删除 {len(ids)} 条"}, ensure_ascii=False))
+        else:
+            self.write(json.dumps({"code": 1, "msg": "缺少 id 或 ids 参数"}, ensure_ascii=False))
+
 
 class StatsApiHandler(BaseHandler):
     """统计数据 API"""

@@ -49,6 +49,9 @@
                 <div class="layui-col-md2"><input id="filter-box" class="layui-input" placeholder="设备"></div>
                 <div class="layui-col-md2"><input id="filter-kw" class="layui-input" placeholder="搜索关键词"></div>
                 <div class="layui-col-md2"><button class="layui-btn" onclick="loadLogs()">查询</button></div>
+                <div class="layui-col-md2 layui-col-md-offset2" style="text-align:right;">
+                    <button class="layui-btn layui-btn-danger layui-btn-sm" onclick="batchDelete()">批量删除</button>
+                </div>
             </div>
             <table id="log-table" lay-filter="logTable"></table>
         </div>
@@ -63,6 +66,7 @@
 layui.use(['table','element'],function(){
     var table=layui.table,$=layui.$;
     table.render({elem:'#log-table',url:'/api/reports',page:true,limit:20,cols:[[
+        {type:'checkbox'},
         {field:'id',title:'ID',width:60},
         {field:'log_type',title:'类型',width:100,templet:function(d){var m={设备上线:'#5fb878',状态上报:'#1E9FFF',指令下发:'#FF9800',指令响应:'#9C27B0'};return '<span style="color:'+(m[d.log_type]||'#666')+'">'+d.log_type+'</span>';}},
         {field:'box_id',title:'设备',width:120},
@@ -70,8 +74,32 @@ layui.use(['table','element'],function(){
         {field:'action',title:'动作',width:120},
         {field:'detail',title:'详情',minWidth:180},
         {field:'created_at',title:'时间',width:160},
+        {title:'操作',width:80,templet:function(d){return '<a class="layui-btn layui-btn-danger layui-btn-xs" lay-event="del">删除</a>';}},
     ]],parseData:function(r){return{code:r.code,count:r.count,data:r.data};},
     request:{pageName:'page',limitName:'limit',where:{log_type:function(){return $('#filter-type').val();},box_id:function(){return $('#filter-box').val();},keyword:function(){return $('#filter-kw').val();}}}});
+
+    function getXsrf(){var m=document.cookie.match(/_xsrf=([^;]+)/);return m?m[1]:'';}
+
+    // 行工具事件（单个删除）
+    table.on('tool(logTable)',function(obj){
+        if(obj.event==='del'){
+            layer.confirm('确认删除该日志？',function(index){
+                layer.close(index);
+                $.ajax({url:'/api/reports?id='+obj.data.id+'&_xsrf='+encodeURIComponent(getXsrf()),type:'DELETE',success:function(r){r=JSON.parse(r);layer.msg(r.msg);obj.del();}});
+            });
+        }
+    });
+
+    // 批量删除
+    window.batchDelete=function(){
+        var checkStatus=table.checkStatus('log-table');
+        if(checkStatus.data.length===0){layer.msg('请先勾选日志');return;}
+        layer.confirm('确认删除选中的 '+checkStatus.data.length+' 条日志？',function(index){
+            layer.close(index);
+            var ids=checkStatus.data.map(function(d){return d.id;}).join(',');
+            $.ajax({url:'/api/reports?ids='+ids+'&_xsrf='+encodeURIComponent(getXsrf()),type:'DELETE',success:function(r){r=JSON.parse(r);layer.msg(r.msg);table.reload('log-table');}});
+        });
+    };
 
     window.loadLogs=function(){table.reload('log-table');};
 

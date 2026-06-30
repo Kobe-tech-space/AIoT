@@ -47,6 +47,24 @@ class OperationLogRepository:
         return rows, total
 
     @staticmethod
+    def delete_log(log_id):
+        """删除单条日志"""
+        with get_connection() as conn:
+            conn.execute("DELETE FROM operation_logs WHERE id = ?", (log_id,))
+
+    @staticmethod
+    def delete_logs_batch(log_ids):
+        """批量删除日志"""
+        if not log_ids:
+            return
+        placeholders = ",".join(["?"] * len(log_ids))
+        with get_connection() as conn:
+            conn.execute(
+                f"DELETE FROM operation_logs WHERE id IN ({placeholders})",
+                log_ids,
+            )
+
+    @staticmethod
     def stats(hours=2):
         """返回统计数据：最近N小时各类型操作数量、设备活跃度、按分钟趋势"""
         with get_connection() as conn:
