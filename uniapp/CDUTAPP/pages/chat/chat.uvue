@@ -1,0 +1,416 @@
+<template>
+  <view :class="['pg', theme]">
+    <view class="hd">
+      <view class="hd-l"><text class="hd-t">CDUTAPP AI</text><text class="hd-s">AIoT 助手</text></view>
+      <view class="hd-r">
+        <!-- #ifdef WEB -->
+        <text :class="['hc', ttsEnabled===true?'hc-on':'hc-off']" @click="toggleTTS">{{ ttsEnabled===true?'TTS开':'TTS关' }}</text>
+        <!-- #endif -->
+        <text class="hc hc-num">{{ onlineCount }}在线</text>
+        <text class="hc" @click="toggleTheme">{{ theme==='dark'?'亮':'暗' }}</text>
+        <text class="hc" @click="clearChat">清空</text>
+      </view>
+    </view>
+
+    <scroll-view class="ms" scroll-y :scroll-into-view="st" scroll-with-animation>
+      <view v-if="messages.length===0" class="wel">
+        <text class="wl-t">小智 AI</text><text class="wl-d">AIoT 智能管家</text>
+        <view class="wl-row">
+          <text class="tip" @click="toggleLight('living')">客 厅 灯</text>
+          <text class="tip" @click="toggleLight('bed1')">卧室1灯</text>
+          <text class="tip" @click="toggleLight('bed2')">卧室2灯</text>
+          <text class="tip" @click="toggleLight('all')">全部灯</text>
+          <text class="tip" @click="sendText('自动模式')">自动</text>
+        </view>
+      </view>
+      <view v-for="(m,i) in messages" :key="i" :id="'m-'+i" :class="['m', m.role==='user'?'mr':'ml', m.role==='sys'?'msys':'']">
+        <view v-if="m.role!=='sys'" :class="['ma', m.role==='user'?'mar':'mal']"><text class="mat">{{ m.role==='user'?'我':'智' }}</text></view>
+        <view :class="['mb', m.role==='sys'?'mbs':'', m.role==='user'?'mbr':'mbl']"><text class="mt">{{ m.content }}</text></view>
+      </view>
+      <view v-if="sending===true" class="m ml"><view class="ma mal"><text class="mat">智</text></view><view class="mb mbl"><text class="mt">...</text></view></view>
+      <view style="height:16px;"></view>
+    </scroll-view>
+
+    <scroll-view scroll-x class="qb">
+      <text class="qb-b" @click="toggleLight('living')">客 厅</text>
+      <text class="qb-b" @click="toggleLight('bed1')">卧 1</text>
+      <text class="qb-b" @click="toggleLight('bed2')">卧 2</text>
+      <text class="qb-b" @click="toggleLight('all')">全 灯</text>
+      <text class="qb-b" @click="sendText('自动模式')">自动</text>
+      <text class="qb-b" @click="sendText('手动模式')">手动</text>
+      <text class="qb-b" @click="sendText('查询状态')">状态</text>
+    </scroll-view>
+
+    <view class="ib">
+      <!-- #ifdef WEB -->
+      <view class="ib-v" @click="startVoice"><text class="ib-vt">🎤</text></view>
+      <!-- #endif -->
+      <textarea class="ib-i" v-model="txt" placeholder="输入..." auto-height maxlength="-1" @confirm="send"/>
+      <view class="ib-b" @click="send"><text class="ib-bt">发送</text></view>
+    </view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  const HOST = 'http://10.128.197.36:8888'
+
+  type MsgItem = {
+    role: string,
+    content: string
+  }
+  type CmdItem = {
+    cmd: string,
+    delay: number
+  }
+
+  const messages = ref<Array<MsgItem>>([])
+  const txt = ref('')
+  const sending = ref(false)
+  const st = ref('')
+  const onlineCount = ref(0)
+  const theme = ref('dark')
+  const ttsEnabled = ref(true)
+  const listening = ref(false)
+  let lightLiving = false
+  let lightBed1 = false
+  let lightBed2 = false
+  let timer: number = 0
+  // #ifdef WEB
+  let recognition: any = null
+  // #endif
+
+  // ===== 无依赖函数（放最前面）=====
+
+  function syncTheme(): void {
+    const s = uni.getStorageSync('app_theme')
+    if (s != null) {
+      theme.value = s as string
+    }
+  }
+
+  function toggleTheme(): void {
+    theme.value = theme.value === 'dark' ? 'light' : 'dark'
+    uni.setStorageSync('app_theme', theme.value)
+  }
+
+  function toggleTTS(): void {
+    ttsEnabled.value = ttsEnabled.value === true ? false : true
+  }
+
+  function addMsg(role: string, content: string | null): void {
+    const c = `${content != null ? content : ''}`
+    messages.value.push({role: role, content: c} as MsgItem)
+    st.value = 'm-' + (messages.value.length - 1)
+  }
+
+  function clearChat(): void {
+    messages.value = []
+    uni.showToast({title:'已清空', icon:'none', duration:800})
+  }
+
+  function fetchOnline(): void {
+    uni.request<UTSJSONObject>({
+      url: HOST + '/api/devices/online',
+      method: 'GET',
+      success: (res) => {
+        const d = res.data
+        if (d != null) {
+          const codeAny = d["code"]
+          if (codeAny != null) {
+            const code = codeAny as number
+            if (code === 0) {
+              const data = d["data"] as Array<UTSJSONObject>
+              if (data != null) {
+                onlineCount.value = data.length
+                if (data.length > 0) {
+                  const dev = data[0]
+                  if (dev != null) {
+                    const lv = dev["led_living"]
+                    lightLiving = lv != null ? ((lv as number) !== 0) : false
+                    const b1 = dev["led_bed1"]
+                    lightBed1 = b1 != null ? ((b1 as number) !== 0) : false
+                    const b2 = dev["led_bed2"]
+                    lightBed2 = b2 != null ? ((b2 as number) !== 0) : false
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+  }
+
+  function hasWord(t: string, words: string): boolean {
+    return new RegExp(words).test(t)
+  }
+
+  function detectCmd(t: string): Array<CmdItem> {
+    const s = t.toLowerCase()
+    const r: Array<CmdItem> = []
+
+    // 动作词
+    const actOn = /开|打开|开启|点亮|亮起/.test(s)
+    const actOff = /关|关闭|熄灭|灭掉|灭|停/.test(s)
+    const actAuto = /自动/.test(s)
+    const actManual = /手动/.test(s)
+    const actQuery = /状态|查询|查看|看看|什么|还有/.test(s)
+    const isToggle = /开关/.test(s)
+
+    // 房间
+    const roomLiving = /客厅/.test(s)
+    const roomBed1 = /卧室1|卧室一|卧一|卧1/.test(s)
+    const roomBed2 = /卧室2|卧室二|卧二|卧2/.test(s)
+    const objScreen = /屏幕|屏|显示/.test(s)
+
+    if (actAuto) { r.push({cmd:'auto', delay:0} as CmdItem) }
+    if (actManual) { r.push({cmd:'manual', delay:0} as CmdItem) }
+    if (actQuery) { r.push({cmd:'status', delay:0} as CmdItem) }
+
+    if (actOn && !isToggle) {
+      if (objScreen) { r.push({cmd:'screen_on', delay:0} as CmdItem) }
+      else if (roomLiving) { r.push({cmd:'living_on', delay:0} as CmdItem) }
+      else if (roomBed1) { r.push({cmd:'bed1_on', delay:0} as CmdItem) }
+      else if (roomBed2) { r.push({cmd:'bed2_on', delay:0} as CmdItem) }
+      else { r.push({cmd:'on', delay:0} as CmdItem) }
+    }
+    if (actOff && !isToggle) {
+      if (objScreen) { r.push({cmd:'screen_off', delay:0} as CmdItem) }
+      else if (roomLiving) { r.push({cmd:'living_off', delay:0} as CmdItem) }
+      else if (roomBed1) { r.push({cmd:'bed1_off', delay:0} as CmdItem) }
+      else if (roomBed2) { r.push({cmd:'bed2_off', delay:0} as CmdItem) }
+      else { r.push({cmd:'off', delay:0} as CmdItem) }
+    }
+
+    const dm = s.match(/(\d+)\s*[s秒]/)
+    if (dm != null && dm.length > 1 && r.length > 0) {
+      const d = parseInt(`${dm[1]}`)
+      for (let i = 0; i < r.length; i++) {
+        r[i] = {cmd: r[i].cmd, delay: d} as CmdItem
+      }
+    }
+    return r
+  }
+
+  // ===== 依赖 addMsg 的函数 =====
+
+  function sendCmd(cmd: string): void {
+    uni.request<UTSJSONObject>({
+      url: HOST + '/api/servers/command',
+      method: 'POST',
+      header: {'Content-Type': 'application/x-www-form-urlencoded'},
+      data: {server_id:'1', box_id:'ESP32-001', cmd:cmd},
+      success: (res) => {
+        const d = res.data
+        if (d != null) {
+          const codeAny = d["code"]
+          if (codeAny != null) {
+            const code = codeAny as number
+            if (code === 0) {
+              addMsg('sys', 'OK ' + cmd)
+            } else {
+              const msgAny = d["msg"]
+              const msg = `${msgAny != null ? msgAny : ''}`
+              addMsg('sys', 'FAIL ' + msg)
+            }
+          }
+        }
+      },
+      fail: () => {
+        addMsg('sys', '网络错误')
+      }
+    })
+  }
+
+  // #ifdef WEB
+  function playTTS(text: string): void {
+    const ctx = (window as any).speechSynthesis
+    if (ctx == null) { return }
+    ctx.cancel()
+    const u = new (window as any).SpeechSynthesisUtterance(text)
+    u.lang = 'zh-CN'
+    u.rate = 1.1
+    ctx.speak(u)
+  }
+  // #endif
+
+  // ===== send 依赖 addMsg / detectCmd / sendCmd / playTTS =====
+
+  function send(): void {
+    const t = `${txt.value}`
+    if (/^\s*$/.test(t) || sending.value === true) { return }
+    txt.value = ''
+    addMsg('user', t)
+
+    // 关键词快控
+    const cmds = detectCmd(t)
+    if (cmds.length > 0) {
+      const hasOnOff = cmds.some((c: CmdItem): boolean => {
+        return c.cmd === 'on' || c.cmd === 'off'
+      })
+      if (hasOnOff) {
+        sendCmd('manual')
+      }
+      const delayMs = hasOnOff ? 300 : 0
+      setTimeout(() => {
+        cmds.forEach((c: CmdItem, i: number) => {
+          let prevDelay = 0
+          if (i > 0) {
+            prevDelay = cmds[i - 1].delay
+          }
+          const wait = i > 0 ? prevDelay * 1000 : 200
+          setTimeout(() => { sendCmd(c.cmd) }, wait)
+        })
+      }, delayMs)
+      return
+    }
+
+    // 模型兜底
+    sending.value = true
+    const hist: Array<MsgItem> = []
+    for (let mi = 0; mi < messages.value.length; mi++) {
+      const m = messages.value[mi]
+      if (m.role !== 'sys' && mi < messages.value.length - 1) {
+        hist.push({
+          role: m.role === 'ai' ? 'assistant' : m.role,
+          content: m.content
+        } as MsgItem)
+      }
+    }
+
+    uni.request<UTSJSONObject>({
+      url: HOST + '/api/models/chat/stream',
+      method: 'POST',
+      header: {'Content-Type': 'application/x-www-form-urlencoded'},
+      data: {id:'1', prompt:t, history:JSON.stringify(hist), _xsrf:'x'},
+      success: (res) => {
+        const d = res.data
+        if (d != null) {
+          const codeAny = d["code"]
+          if (codeAny != null) {
+            const code = codeAny as number
+            if (code === 0) {
+              const replyAny = d["reply"]
+              const reply = `${replyAny != null ? replyAny : ''}`
+              addMsg('ai', reply)
+              // #ifdef WEB
+              if (ttsEnabled.value === true) { playTTS(reply) }
+              // #endif
+            } else {
+              const msgAny = d["msg"]
+              const errText = `${msgAny != null ? msgAny : ''}`
+              addMsg('ai', 'ERR ' + errText)
+            }
+          }
+        }
+        sending.value = false
+      },
+      fail: () => {
+        addMsg('ai', '网络异常')
+        sending.value = false
+      }
+    })
+  }
+
+  // ===== sendText 依赖 send，startVoice 依赖 send =====
+
+  function sendText(t: string): void {
+    txt.value = t
+    send()
+  }
+
+  function toggleLight(room: string): void {
+    let cmd = ''
+    if (room === 'living') { cmd = lightLiving ? 'living_off' : 'living_on'; lightLiving = !lightLiving }
+    else if (room === 'bed1') { cmd = lightBed1 ? 'bed1_off' : 'bed1_on'; lightBed1 = !lightBed1 }
+    else if (room === 'bed2') { cmd = lightBed2 ? 'bed2_off' : 'bed2_on'; lightBed2 = !lightBed2 }
+    else if (room === 'all') {
+      const anyOn = lightLiving || lightBed1 || lightBed2
+      cmd = anyOn ? 'off' : 'on'
+      lightLiving = !anyOn; lightBed1 = !anyOn; lightBed2 = !anyOn
+    }
+    if (cmd.length > 0) { sendCmd(cmd) }
+    addMsg('sys', '已发送: ' + cmd)
+  }
+
+  // #ifdef WEB
+  function startVoice(): void {
+    if (listening.value === true) { return }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (SR == null) {
+      uni.showToast({title:'浏览器不支持', icon:'none'})
+      return
+    }
+    if (recognition == null) {
+      recognition = new SR()
+      recognition.lang = 'zh-CN'
+      recognition.interimResults = false
+      recognition.onresult = (e: any) => {
+        txt.value = e.results[0][0].transcript
+        send()
+      }
+      recognition.onend = () => { listening.value = false }
+      recognition.onerror = () => { listening.value = false }
+    }
+    listening.value = true
+    recognition.start()
+  }
+  // #endif
+
+  // ===== 初始化代码（所有函数定义完毕后执行）=====
+
+  syncTheme()
+  onShow((): void => {
+    syncTheme()
+    fetchOnline()
+  })
+  fetchOnline()
+  timer = setInterval(fetchOnline, 5000) as number
+</script>
+
+<style>
+  .dark { --bg:#0a0e1a; --card:rgba(255,255,255,0.04); --text:#e0e0e0; --text2:#aaa; --text3:#666; --ibg:rgba(255,255,255,0.06); --bbg:rgba(255,255,255,0.03); }
+  .light { --bg:#F0F2F5; --card:#fff; --text:#1a1a1a; --text2:#555; --text3:#999; --ibg:#F5F7FA; --bbg:#fff; }
+  .pg { display:flex; flex-direction:column; position:absolute; top:0; left:0; right:0; bottom:0; background:var(--bg); }
+  .hd { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; background:#1a1040; }
+  .light .hd { background:#1E9FFF; }
+  .hd-l { display:flex; flex-direction:column; }
+  .hd-t { font-size:16px; font-weight:700; color:#fff; }
+  .hd-s { font-size:10px; color:rgba(255,255,255,0.55); }
+  .hd-r { display:flex; flex-direction:row; }
+  .hc { padding:2px 6px; border-radius:10px; font-size:10px; color:rgba(255,255,255,0.8); background:rgba(255,255,255,0.1); margin-left:2px; }
+  .hc-on { color:#00BFA5; }
+  .hc-off { color:#888; }
+  .hc-num { color:#00BFA5; }
+  .ms { flex:1; padding:10px 12px; }
+  .wel { display:flex; flex-direction:column; align-items:center; padding:40px 10px; }
+  .wl-t { font-size:20px; font-weight:700; color:var(--text); margin-bottom:4px; }
+  .wl-d { font-size:13px; color:var(--text3); margin-bottom:16px; }
+  .wl-row { display:flex; flex-direction:row; flex-wrap:wrap; justify-content:center; }
+  .tip { padding:6px 14px; border-radius:16px; font-size:12px; background:rgba(255,255,255,0.06); color:#aaa; margin:4px; border:1px solid rgba(255,255,255,0.08); }
+  .m { display:flex; flex-direction:row; margin-bottom:10px; max-width:280px; }
+  .mr { flex-direction:row-reverse; align-self:flex-end; }
+  .ml { align-self:flex-start; }
+  .msys { align-self:center; max-width:400px; }
+  .ma { width:30px; height:30px; border-radius:15px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-left:6px; margin-right:6px; }
+  .mar { background:#00BFA5; }
+  .mal { background:#FF6D00; }
+  .mat { font-size:11px; font-weight:600; color:#fff; }
+  .mb { padding:7px 10px; border-radius:10px; flex-shrink:1; overflow:hidden; }
+  .mbr { background:#1E9FFF; }
+  .mbl { background:rgba(255,255,255,0.08); }
+  .light .mbl { background:#fff; }
+  .mbs { background:rgba(0,191,165,0.12); border:1px solid rgba(0,191,165,0.25); border-radius:6px; }
+  .mt { font-size:13px; line-height:1.5; color:#e0e0e0; word-break:break-all; overflow:hidden; }
+  .light .mt { color:#1a1a1a; }
+  .mr .mt { color:#fff; }
+  .qb { display:flex; flex-direction:row; padding:5px 6px; background:var(--bbg); border-top:1px solid rgba(255,255,255,0.05); white-space:nowrap; }
+  .qb-b { padding:4px 8px; border-radius:10px; font-size:10px; background:rgba(255,255,255,0.06); color:#999; margin:0 2px; flex-shrink:0; border:1px solid rgba(255,255,255,0.06); }
+  .ib { display:flex; flex-direction:row; align-items:flex-end; padding:6px 8px; background:var(--bbg); border-top:1px solid rgba(255,255,255,0.05); }
+  .ib-v { width:32px; height:32px; border-radius:16px; background:var(--ibg); display:flex; align-items:center; justify-content:center; flex-shrink:0; border:1px solid rgba(255,255,255,0.08); }
+  .ib-vt { font-size:16px; }
+  .ib-i { flex:1; background:var(--ibg); border-radius:16px; padding:6px 10px; font-size:13px; color:var(--text); max-height:80px; border:1px solid rgba(255,255,255,0.08); margin-left:4px; margin-right:4px; }
+  .light .ib-i { border-color:#e0e0e0; }
+  .ib-b { border-radius:16px; padding:6px 12px; background:#00BFA5; flex-shrink:0; }
+  .ib-bt { color:#fff; font-size:12px; font-weight:600; }
+</style>

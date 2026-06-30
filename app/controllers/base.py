@@ -26,6 +26,21 @@ class BaseHandler(tornado.web.RequestHandler):
         row = UserRepository.get_user_by_username(username)
         return row and row["is_admin"] == 1
 
+    def set_default_headers(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
     def prepare(self):
-        # 所有页面都可以获取 is_admin 变量
         pass
+
+
+class MobileBaseHandler(BaseHandler):
+    """移动端 API 基类：跳过 XSRF 校验"""
+
+    def check_xsrf_cookie(self):
+        pass  # 移动端不校验 XSRF

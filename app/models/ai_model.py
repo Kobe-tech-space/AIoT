@@ -18,6 +18,13 @@ class AiModelRepository:
             return cursor.lastrowid
 
     @staticmethod
+    def get_model_by_name(model_name):
+        with get_connection() as conn:
+            return conn.execute(
+                "SELECT * FROM ai_models WHERE model_name = ? LIMIT 1", (model_name,)
+            ).fetchone()
+
+    @staticmethod
     def get_model_by_id(model_id):
         with get_connection() as conn:
             return conn.execute(
@@ -99,3 +106,14 @@ class AiModelRepository:
             )
             with get_connection() as conn:
                 conn.execute("UPDATE ai_models SET is_default = 1 WHERE model_name = 'qwen3.5-flash'")
+
+        # TTS 模型（语音合成）
+        if not AiModelRepository.get_model_by_name("qwen3-tts-flash"):
+            AiModelRepository.create_model(
+                name="qwen3-tts-flash (TTS)",
+                api_key="sk-aigc-74417635957c145bcc72f4687569e4e07b2c0b43",
+                api_url="https://aigc-api.aitoolcore.com/api/v1",
+                model_name="qwen3-tts-flash",
+                temperature=1.0,
+                max_tokens=4096,
+            )

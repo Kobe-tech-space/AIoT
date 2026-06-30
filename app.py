@@ -29,15 +29,17 @@ from app.controllers.home import IndexHandler, DashboardApiHandler
 from app.controllers.report import ReportPageHandler, ReportApiHandler, StatsApiHandler
 from app.controllers.ai_engine import (
     ModelListHandler, ModelApiHandler, ModelDefaultHandler, ModelChatHandler,
-    ModelChatStreamHandler,
+    ModelChatStreamHandler, TTSHandler, WeatherProxyHandler,
     ApiListHandler, ExternalApiHandler, ApiTestHandler,
 )
+from app.models.external_api import ExternalApiRepository
 from app.controllers.device_manage import DeviceListHandler, DeviceApiHandler, DeviceSensorHandler
 from app.controllers.server_manager import (
     ServerListHandler, ServerApiHandler, ServerToggleHandler,
     ServerCommandHandler, DeviceStatusHandler,
 )
 from app.controllers.user_manage import UserListHandler, UserApiHandler, UserToggleHandler
+from app.controllers.twin import TwinPageHandler, TwinStatusHandler
 from app.models.db import init_db
 from app.models.ai_model import AiModelRepository
 from app.models.user import UserRepository
@@ -112,12 +114,17 @@ def make_app():
             (r"/apis", ApiListHandler),
             (r"/api/external", ExternalApiHandler),
             (r"/api/external/test", ApiTestHandler),
+            (r"/api/weather", WeatherProxyHandler),
+            (r"/api/tts", TTSHandler),
             # 服务器管理
             (r"/servers", ServerListHandler),
             (r"/api/servers", ServerApiHandler),
             (r"/api/servers/toggle", ServerToggleHandler),
             (r"/api/servers/command", ServerCommandHandler),
             (r"/api/devices/online", DeviceStatusHandler),
+            # 数字孪生
+            (r"/twin", TwinPageHandler),
+            (r"/api/twin/status", TwinStatusHandler),
             # 数据报表
             (r"/reports", ReportPageHandler),
             (r"/api/reports", ReportApiHandler),
@@ -132,6 +139,18 @@ if __name__ == "__main__":
     init_db()
     seed_admin()
     AiModelRepository.seed_builtin()
+
+    # 种子：天气接口
+    from app.models.db import get_connection
+    with get_connection() as conn:
+        existing = conn.execute("SELECT id FROM external_apis WHERE name = 'wttr.in天气'").fetchone()
+        if not existing:
+            conn.execute(
+                """INSERT INTO external_apis (name, api_type, url, api_key, params)
+                   VALUES ('wttr.in天气', '天气', 'https://wttr.in/chengdu?format=j1', '', '{}')"""
+            )
+            print("[Seed] 已创建天气接口: wttr.in天气")
+
     app = make_app()
     # 监听端口：默认 8888；如被占用则自动尝试后续端口（便于教学时多开实例）
     base_port = int(os.environ.get("PORT", "8888"))

@@ -3,9 +3,10 @@
 import json
 import os
 import urllib.request
-from app.controllers.base import BaseHandler
+from app.controllers.base import BaseHandler, MobileBaseHandler
 from app.controllers.user_manage import admin_required
 from app.models.ai_model import AiModelRepository
+from app.models.db import get_connection
 from app.models.external_api import ExternalApiRepository
 
 # 加载机器人提示词
@@ -146,43 +147,103 @@ class ModelChatPageHandler(BaseHandler):
         self.render("chat.html", title="AI 对话", model_id=model_id)
 
 
-class ModelChatStreamHandler(BaseHandler):
-    """对话（带上下文）"""
+# ==================== Function Calling ====================
 
-    @admin_required
+TOOLS = [
+    {"type":"function","function":{"name":"get_weather","description":"查询指定城市的当前天气","parameters":{"type":"object","properties":{"city":{"type":"string","description":"城市名，如成都"}},"required":["city"]}}},
+    {"type":"function","function":{"name":"control_device","description":"向AIoT设备下发控制指令","parameters":{"type":"object","properties":{"box_id":{"type":"string","description":"设备编号"},"cmd":{"type":"string","enum":["on","off","auto","manual","status","screen_on","screen_off"]}},"required":["box_id","cmd"]}}},
+    {"type":"function","function":{"name":"get_device_status","description":"查询AIoT设备的在线状态和传感器数据","parameters":{"type":"object","properties":{"box_id":{"type":"string","description":"设备编号，留空查全部"}}}}}
+]
+
+def execute_function(name, args):
+    if name == "get_weather":
+        city = args.get("city", "chengdu")
+        try:
+            req = urllib.request.Request(f"https://wttr.in/{city}?format=j1")
+            req.add_header("User-Agent", "curl/7.0")
+            resp = urllib.request.urlopen(req, timeout=8)
+            data = json.loads(resp.read().decode("utf-8"))
+            cur = data.get("current_condition", [{}])[0]
+            w = cur.get("weatherDesc", [{}])[0].get("value", "?")
+            t = cur.get("temp_C", "?")
+            h = cur.get("humidity", "?")
+            return f"{city}天气：{w}，{t}C，湿度{h}%"
+        except Exception as e:
+            return f"天气查询失败: {e}"
+    elif name == "get_device_status":
+        from app.controllers.server_manager import get_online_devices
+        devices = get_online_devices()
+        box_id = args.get("box_id", "")
+        if not devices: return "当前没有在线设备"
+        if box_id:
+            dev = devices.get(box_id)
+            if not dev: return f"设备 {box_id} 不在线"
+            s = dev.get("status", {})
+            return f"{box_id}: LED={'ON' if s.get('led') else 'OFF'}, 模式={s.get('mode','?')}, 光敏={'暗' if s.get('light') else '亮'}, 人体={'有人' if s.get('pir') else '无人'}"
+        lines = [f"{bid}: LED={'ON' if d.get('status',{}).get('led') else 'OFF'}, 模式={d.get('status',{}).get('mode','?')}" for bid,d in devices.items()]
+        return chr(10).join(lines)
+    elif name == "control_device":
+        from app.controllers.server_manager import send_device_command, _running_servers
+        if not _running_servers: return "没有运行中的服务器"
+        sid = list(_running_servers.keys())[0]
+        ok = send_device_command(sid, args.get("box_id",""), args.get("cmd",""))
+        return f"指令 {args.get('cmd','')} {'已发送' if ok else '失败'}"
+    return "未知操作"
+
+
+class ModelChatStreamHandler(MobileBaseHandler):
+    """对话（带上下文）— 移动端免 XSRF"""
+
     def post(self):
         model_id = int(self.get_body_argument("id"))
         prompt = (self.get_body_argument("prompt", "") or "").strip()
         history_json = (self.get_body_argument("history", "[]") or "[]").strip()
-
         model = AiModelRepository.get_model_by_id(model_id)
         if not model:
-            self.write(json.dumps({"code": 1, "msg": "模型不存在"}, ensure_ascii=False))
+            self.write(json.dumps({"code": 1, "msg": "模型不存在"}, ensure_ascii=False)); return
+        try: history = json.loads(history_json)
+        except: history = []
+
+        # 快控优先：本地关键词 → 直接执行，秒响应
+        t = prompt.lower()
+        func_result = None
+        if any(kw in t for kw in ['天气','weather','气温','下雨']):
+            city = 'chengdu'
+            for c in ['成都','北京','上海','深圳','杭州','南京','武汉','重庆','西安','广州']:
+                if c in prompt: city = c; break
+            func_result = execute_function('get_weather', {'city': city})
+        elif any(kw in t for kw in ['设备状态','传感器','在线设备','查设备','还有什么设备','设备列表']):
+            func_result = execute_function('get_device_status', {})
+        elif any(kw in t for kw in ['开灯','关灯','自动','手动','亮屏','息屏','打开灯','关闭灯','切换']):
+            # 指令已在移动端/前端关键词检测中处理，这里做兜底
+            pass
+
+        if func_result:
+            # 用模型润色：将结果包装成口语化回复
+            fm = [{"role":"system","content":"你是小智。把以下数据用口语化方式告诉用户，1-2句话，带emoji。"},
+                  {"role":"user","content": "用户问：" + prompt + " 查询结果：" + func_result + " 请自然回复："}]
+            try:
+                rd = json.dumps({"model":model["model_name"],"messages":fm,"temperature":0.8,"max_tokens":200}).encode("utf-8")
+                rq = urllib.request.Request(model["api_url"]+"/chat/completions",data=rd)
+                rq.add_header("Content-Type","application/json")
+                rq.add_header("Authorization",f"Bearer {model['api_key']}")
+                rr = json.loads(urllib.request.urlopen(rq,timeout=15).read().decode("utf-8"))
+                reply = rr["choices"][0]["message"]["content"]
+            except:
+                reply = func_result
+            self.write(json.dumps({"code": 0, "reply": reply}, ensure_ascii=False))
             return
 
-        try:
-            history = json.loads(history_json)
-        except:
-            history = []
-
+        # 模型兜底：复杂语义走大模型
         messages = [{"role": "system", "content": _load_system_prompt()}]
         messages.extend(history)
         messages.append({"role": "user", "content": prompt})
-
         try:
-            req_data = json.dumps({
-                "model": model["model_name"],
-                "messages": messages,
-                "temperature": model["temperature"],
-                "max_tokens": model["max_tokens"],
-            }).encode("utf-8")
-
+            req_data = json.dumps({"model": model["model_name"], "messages": messages, "temperature": model["temperature"], "max_tokens": model["max_tokens"]}).encode("utf-8")
             req = urllib.request.Request(model["api_url"] + "/chat/completions", data=req_data)
             req.add_header("Content-Type", "application/json")
             req.add_header("Authorization", f"Bearer {model['api_key']}")
-
-            resp = urllib.request.urlopen(req, timeout=60)
-            body = json.loads(resp.read().decode("utf-8"))
+            body = json.loads(urllib.request.urlopen(req, timeout=60).read().decode("utf-8"))
             reply = body["choices"][0]["message"]["content"]
             self.write(json.dumps({"code": 0, "reply": reply}, ensure_ascii=False))
         except Exception as e:
@@ -282,6 +343,71 @@ class ApiTestHandler(BaseHandler):
             }, ensure_ascii=False))
         except Exception as e:
             self.write(json.dumps({"code": 1, "msg": f"连通失败: {e}"}, ensure_ascii=False))
+
+
+class TTSHandler(MobileBaseHandler):
+    """语音合成代理（qwen3-tts-flash）— 不支持流式，返回完整 MP3"""
+
+    def post(self):
+        model_id = self.get_body_argument("id", "1")
+        text = (self.get_body_argument("text", "") or "").strip()
+
+        model = AiModelRepository.get_model_by_id(int(model_id))
+        # 优先用 TTS 专用模型，否则查 ai_models 中 model_name 含 tts 的
+        if not model or "tts" not in (model["model_name"] or "").lower():
+            with get_connection() as conn:
+                model = conn.execute(
+                    "SELECT * FROM ai_models WHERE LOWER(model_name) LIKE '%tts%' LIMIT 1"
+                ).fetchone()
+        if not model:
+            model = AiModelRepository.get_default_model()
+        if not model:
+            self.set_status(500)
+            self.write(json.dumps({"code": 1, "msg": "没有可用的 TTS 模型"}, ensure_ascii=False))
+            return
+
+        try:
+            req_data = json.dumps({
+                "model": "qwen3-tts-flash",
+                "input": text,
+                "voice": "longxiaochun_v3",
+                "response_format": "mp3",
+            }).encode("utf-8")
+
+            req = urllib.request.Request(model["api_url"] + "/audio/speech", data=req_data)
+            req.add_header("Content-Type", "application/json")
+            req.add_header("Authorization", f"Bearer {model['api_key']}")
+
+            resp = urllib.request.urlopen(req, timeout=30)
+            audio_data = resp.read()
+
+            self.set_header("Content-Type", "audio/mpeg")
+            self.set_header("Content-Length", str(len(audio_data)))
+            self.write(audio_data)
+        except Exception as e:
+            self.set_status(500)
+            detail = str(e)
+            try:
+                if hasattr(e, "read"): detail = e.read().decode("utf-8")[:500]
+            except: pass
+            self.write(json.dumps({"code": 1, "msg": f"TTS 失败: {detail}"}, ensure_ascii=False))
+
+
+class WeatherProxyHandler(MobileBaseHandler):
+    """天气接口代理（wttr.in）— 移动端免 XSRF"""
+
+    def get(self):
+        city = self.get_argument("city", "chengdu")
+        try:
+            url = f"https://wttr.in/{city}?format=j1"
+            req = urllib.request.Request(url)
+            req.add_header("User-Agent", "curl/7.0")
+            resp = urllib.request.urlopen(req, timeout=10)
+            body = resp.read().decode("utf-8")
+            self.set_header("Content-Type", "application/json")
+            self.write(body)
+        except Exception as e:
+            self.write(json.dumps({"code": 1, "msg": f"天气查询失败: {e}"}, ensure_ascii=False))
 
 
 # ==================== 工具函数 ====================

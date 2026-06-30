@@ -5,7 +5,7 @@ import socket
 import threading
 import time
 
-from app.controllers.base import BaseHandler
+from app.controllers.base import BaseHandler, MobileBaseHandler
 from app.controllers.user_manage import admin_required
 from app.models.operation_log import OperationLogRepository
 from app.models.tcpserver import TcpServerRepository
@@ -132,12 +132,14 @@ def _handle_device(conn, addr, server_id):
                             _online_devices[box_id]["status"] = msg
                             _online_devices[box_id]["last_seen"] = time.time()
                             _online_devices[box_id]["server_id"] = server_id
-                    led = "ON" if msg.get("led") else "OFF"
+                    lv = "ON" if msg.get("led_living") else "OFF"
+                    b1 = "ON" if msg.get("led_bed1") else "OFF"
+                    b2 = "ON" if msg.get("led_bed2") else "OFF"
                     light = "Dark" if msg.get("light") else "Bright"
                     pir = "Body" if msg.get("pir") else "None"
                     mode = msg.get("mode", "-")
-                    _emit(server_id, f"{box_id}  LED:{led}  光敏:{light}  人体:{pir}  模式:{mode}", "info")
-                    OperationLogRepository.add_log("状态上报", box_id, "设备", "上报", f"LED:{led} 光敏:{light} 人体:{pir} 模式:{mode}")
+                    _emit(server_id, f"{box_id}  客厅:{lv}  卧1:{b1}  卧2:{b2}  光敏:{light}  人体:{pir}  模式:{mode}", "info")
+                    OperationLogRepository.add_log("状态上报", box_id, "设备", "上报", f"客厅:{lv} 卧1:{b1} 卧2:{b2} 光敏:{light} 人体:{pir} 模式:{mode}")
 
                 elif msg_type == "info" and box_id:
                     cmd = msg.get("cmd", "")
@@ -344,6 +346,36 @@ def send_device_command(server_id, box_id, cmd):
     try:
         line = json.dumps({"cmd": cmd}) + "\n"
         dev["conn"].sendall(line.encode('utf-8'))
+
+        # 乐观更新缓存（不等心跳上报，立即同步状态给前端）
+        with _devices_lock:
+            status = dev.setdefault("status", {})
+            if cmd == "on":
+                status["led_living"] = 1; status["led_bed1"] = 1; status["led_bed2"] = 1; status["led"] = 1
+            elif cmd == "off":
+                status["led_living"] = 0; status["led_bed1"] = 0; status["led_bed2"] = 0; status["led"] = 0
+            elif cmd == "living_on":
+                status["led_living"] = 1; status["led"] = 1
+            elif cmd == "living_off":
+                status["led_living"] = 0
+            elif cmd == "bed1_on":
+                status["led_bed1"] = 1; status["led"] = 1
+            elif cmd == "bed1_off":
+                status["led_bed1"] = 0
+            elif cmd == "bed2_on":
+                status["led_bed2"] = 1; status["led"] = 1
+            elif cmd == "bed2_off":
+                status["led_bed2"] = 0
+            elif cmd == "auto":
+                status["mode"] = "auto"
+            elif cmd == "manual":
+                status["mode"] = "manual"
+            # 关灯时检查是否全部已关
+            if cmd.endswith("_off"):
+                all_off = not (status.get("led_living") or status.get("led_bed1") or status.get("led_bed2"))
+                if all_off:
+                    status["led"] = 0
+
         _emit(server_id, f">>> send {box_id} {json.dumps({'cmd': cmd})}", "warn")
         OperationLogRepository.add_log("指令下发", box_id, "管理员", cmd, "")
         return True
@@ -352,10 +384,9 @@ def send_device_command(server_id, box_id, cmd):
         return False
 
 
-class ServerCommandHandler(BaseHandler):
-    """下发指令到设备"""
+class ServerCommandHandler(MobileBaseHandler):
+    """下发指令到设备 — 移动端免 XSRF"""
 
-    @admin_required
     def post(self):
         server_id = int(self.get_body_argument("server_id"))
         box_id = (self.get_body_argument("box_id", "") or "").strip()
@@ -363,6 +394,7 @@ class ServerCommandHandler(BaseHandler):
 
         if not box_id or cmd not in (
             "on", "off", "auto", "manual", "status",
+            "living_on", "living_off", "bed1_on", "bed1_off", "bed2_on", "bed2_off",
             "light", "human", "sensor", "ip", "box_id",
             "screen_on", "screen_off", "screen_invert", "screen_normal",
             "contrast", "help", "set_interval",
@@ -377,10 +409,9 @@ class ServerCommandHandler(BaseHandler):
             self.write(json.dumps({"code": 1, "msg": "设备不在线"}, ensure_ascii=False))
 
 
-class DeviceStatusHandler(BaseHandler):
-    """获取在线设备列表"""
+class DeviceStatusHandler(MobileBaseHandler):
+    """获取在线设备列表 — 移动端免 XSRF"""
 
-    @admin_required
     def get(self):
         devices = get_online_devices()
         data = []
@@ -390,6 +421,9 @@ class DeviceStatusHandler(BaseHandler):
                 "box_id": box_id,
                 "addr": f"{dev['addr'][0]}:{dev['addr'][1]}",
                 "led": status.get("led", 0),
+                "led_living": status.get("led_living", 0),
+                "led_bed1": status.get("led_bed1", 0),
+                "led_bed2": status.get("led_bed2", 0),
                 "light": status.get("light", 0),
                 "pir": status.get("pir", 0),
                 "mode": status.get("mode", "-"),

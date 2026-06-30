@@ -1,0 +1,642 @@
+{% extends "base.html" %}
+{% block title %}数字孪生{% end %}
+{% block body %}
+<style>
+  * { margin: 0; padding: 0; }
+  body { overflow: hidden; background: #0a0e1a; }
+  #twin-container { width: 100vw; height: 100vh; }
+
+  .info-panel {
+    position: fixed; top: 16px; right: 16px;
+    background: rgba(10,14,26,0.9); color: #e0e0e0;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px; padding: 16px 18px;
+    font-size: 13px; min-width: 230px; z-index: 10;
+  }
+  .info-panel h3 { margin: 0 0 12px 0; font-size: 15px; color: #00BFA5; }
+  .info-row { display: flex; align-items: center; justify-content: space-between; margin: 6px 0; }
+  .info-label { color: #999; font-size: 12px; }
+  .info-right { display: flex; align-items: center; gap: 8px; }
+  .info-val { font-weight: 600; font-size: 12px; min-width: 40px; text-align: right; }
+  .info-val.on { color: #FFB300; }
+  .info-val.off { color: #666; }
+  .info-val.active { color: #F44336; }
+  .info-val.idle { color: #666; }
+
+  .ctrl-btn {
+    padding: 2px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.06); color: #ccc; font-size: 11px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .ctrl-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+  .ctrl-btn.on-btn:hover { border-color: #FFB300; color: #FFB300; }
+  .ctrl-btn.off-btn:hover { border-color: #888; color: #888; }
+
+  .legend {
+    position: fixed; bottom: 20px; left: 20px;
+    background: rgba(10,14,26,0.85); color: #aaa;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px; padding: 10px 14px;
+    font-size: 11px; z-index: 10; display: flex; gap: 16px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 5px; }
+  .legend-dot.led-on { background: #FFB300; box-shadow: 0 0 10px #FFB300; }
+  .legend-dot.led-off { background: #444; }
+  .legend-dot.pir-on { background: #F44336; box-shadow: 0 0 10px #F44336; animation: ld 1s infinite; }
+  .legend-dot.pir-off { background: #444; }
+  @keyframes ld { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .tips {
+    position: fixed; bottom: 20px; right: 20px;
+    color: rgba(255,255,255,0.2); font-size: 10px; z-index: 10;
+  }
+
+  .back-btn {
+    position: fixed; top: 16px; left: 16px; z-index: 10;
+    background: rgba(10,14,26,0.85); color: #aaa;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; padding: 6px 14px;
+    font-size: 12px; cursor: pointer; text-decoration: none;
+  }
+  .back-btn:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+</style>
+
+<div id="twin-container"></div>
+<a class="back-btn" href="/">← 返回首页</a>
+
+<div class="info-panel" id="info-panel">
+  <h3>设备状态 · 控制</h3>
+  <div class="info-row">
+    <span class="info-label">客厅 LED</span>
+    <span class="info-right">
+      <span class="info-val off" id="led-living">—</span>
+      <button class="ctrl-btn on-btn" onclick="sendTwinCmd('living_on')">开</button>
+      <button class="ctrl-btn off-btn" onclick="sendTwinCmd('living_off')">关</button>
+    </span>
+  </div>
+  <div class="info-row">
+    <span class="info-label">卧室1 LED</span>
+    <span class="info-right">
+      <span class="info-val off" id="led-bed1">—</span>
+      <button class="ctrl-btn on-btn" onclick="sendTwinCmd('bed1_on')">开</button>
+      <button class="ctrl-btn off-btn" onclick="sendTwinCmd('bed1_off')">关</button>
+    </span>
+  </div>
+  <div class="info-row">
+    <span class="info-label">卧室2 LED</span>
+    <span class="info-right">
+      <span class="info-val off" id="led-bed2">—</span>
+      <button class="ctrl-btn on-btn" onclick="sendTwinCmd('bed2_on')">开</button>
+      <button class="ctrl-btn off-btn" onclick="sendTwinCmd('bed2_off')">关</button>
+    </span>
+  </div>
+  <div class="info-row">
+    <span class="info-label">卫浴 PIR</span>
+    <span class="info-right">
+      <span class="info-val idle" id="pir-bath">—</span>
+    </span>
+  </div>
+  <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
+    <button class="ctrl-btn" onclick="sendTwinCmd('on')" style="flex:1;">全部开</button>
+    <button class="ctrl-btn" onclick="sendTwinCmd('off')" style="flex:1;">全部关</button>
+    <button class="ctrl-btn" onclick="sendTwinCmd('auto')" style="flex:1;">自动</button>
+    <button class="ctrl-btn" onclick="sendTwinCmd('manual')" style="flex:1;">手动</button>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot led-on"></span> 灯开</div>
+  <div class="legend-item"><span class="legend-dot led-off"></span> 灯关</div>
+  <div class="legend-item"><span class="legend-dot pir-on"></span> 有人</div>
+  <div class="legend-item"><span class="legend-dot pir-off"></span> 无人</div>
+</div>
+<div class="tips">鼠标拖拽旋转 · 滚轮缩放 · 右键平移 · 按键1俯视 2正面 3侧面 0默认</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+  // ===== 全局状态引用（供外部按钮使用）=====
+  window._twinState = { leds: [], pirs: [], floorGlows: [] };
+
+  // ===== 发送指令（乐观更新 + 保护期）=====
+  let skipPollUntil = 0;
+  window.sendTwinCmd = async function(cmd) {
+    // 立刻更新 3D 场景
+    if (cmd === 'on' || cmd === 'off') {
+      const isOn = (cmd === 'on');
+      leds.forEach(l => setLEDState(l, isOn));
+      ['led-living','led-bed1','led-bed2'].forEach(id => updatePanel(id, isOn, 'on', 'off', '开 灯', '关 灯'));
+    } else if (cmd === 'living_on') {
+      setLEDState(leds[0], true); updatePanel('led-living', true, 'on', 'off', '开 灯', '关 灯');
+    } else if (cmd === 'living_off') {
+      setLEDState(leds[0], false); updatePanel('led-living', false, 'on', 'off', '开 灯', '关 灯');
+    } else if (cmd === 'bed1_on') {
+      setLEDState(leds[1], true); updatePanel('led-bed1', true, 'on', 'off', '开 灯', '关 灯');
+    } else if (cmd === 'bed1_off') {
+      setLEDState(leds[1], false); updatePanel('led-bed1', false, 'on', 'off', '开 灯', '关 灯');
+    } else if (cmd === 'bed2_on') {
+      setLEDState(leds[2], true); updatePanel('led-bed2', true, 'on', 'off', '开 灯', '关 灯');
+    } else if (cmd === 'bed2_off') {
+      setLEDState(leds[2], false); updatePanel('led-bed2', false, 'on', 'off', '开 灯', '关 灯');
+    }
+    // 缓冲 1 秒后恢复轮询（后端已乐观更新缓存，无需久等）
+    skipPollUntil = performance.now() * 0.001 + 1.0;
+    // 发送 HTTP 指令
+    try {
+      const body = new URLSearchParams();
+      body.append('server_id', '1');
+      body.append('box_id', 'ESP32-001');
+      body.append('cmd', cmd);
+      fetch('/api/servers/command', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body });
+    } catch(e) { console.log('指令失败:', e); }
+  };
+
+  // ===== 基础场景 =====
+  const container = document.getElementById('twin-container');
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0e1a);
+  scene.fog = new THREE.Fog(0x0a0e1a, 30, 80);
+
+  const camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.5, 100);
+  camera.position.set(22, 14, 22);
+  camera.lookAt(8, 0, 6);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.2;
+  container.appendChild(renderer.domElement);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(8, 1, 6);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 8;
+  controls.maxDistance = 40;
+  controls.maxPolarAngle = Math.PI / 2 + 0.6;
+  controls.update();
+
+  // ===== 光照 =====
+  const ambientLight = new THREE.AmbientLight(0x334466, 1.0);
+  scene.add(ambientLight);
+
+  const sunLight = new THREE.DirectionalLight(0xffffff, 2.0);
+  sunLight.position.set(20, 20, 10);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.width = 2048;
+  sunLight.shadow.mapSize.height = 2048;
+  sunLight.shadow.camera.near = 0.5;
+  sunLight.shadow.camera.far = 60;
+  sunLight.shadow.camera.left = -25;
+  sunLight.shadow.camera.right = 25;
+  sunLight.shadow.camera.top = 25;
+  sunLight.shadow.camera.bottom = -25;
+  sunLight.shadow.bias = -0.0001;
+  scene.add(sunLight);
+
+  // ===== 材质工厂 =====
+  const WALL_MAT = new THREE.MeshStandardMaterial({ color: 0xe8e0d5, roughness: 0.7, metalness: 0.02, transparent: true, opacity: 0.5 });
+  const WOOD_MAT = new THREE.MeshStandardMaterial({ color: 0x6b4c3b, roughness: 0.5 });
+  const FABRIC_MAT = new THREE.MeshStandardMaterial({ color: 0x445588, roughness: 0.8 });
+
+  // ===== 地面 =====
+  const floorGeo = new THREE.PlaneGeometry(16, 12);
+  const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0x2a2218, roughness: 0.9 }));
+  floor.rotation.x = -Math.PI / 2; floor.position.set(8, 0.01, 6); floor.receiveShadow = true;
+  scene.add(floor);
+
+  // ===== 墙体 =====
+  function createWall(x, z, w, d, h) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), WALL_MAT);
+    mesh.position.set(x, h / 2, z);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  const walls = new THREE.Group();
+  walls.add(createWall(8, 0, 16, 0.2, 3));    // 前
+  walls.add(createWall(8, 12, 16, 0.2, 3));   // 后
+  walls.add(createWall(0, 6, 0.2, 12, 3));    // 左
+  walls.add(createWall(16, 6, 0.2, 12, 3));   // 右
+  walls.add(createWall(5, 6, 9.8, 0.2, 3));   // 卧室1-客厅隔断
+  walls.add(createWall(13, 6, 5.8, 0.2, 3));  // 卧室2-卫浴隔断
+  walls.add(createWall(10, 9, 0.2, 5.8, 3));  // 客厅-卫浴隔断
+  walls.add(createWall(8, 3, 0.2, 5.8, 3));   // 卧室1-卧室2隔断
+  scene.add(walls);
+
+  // ===== 地面色块 =====
+  function floorPatch(x, z, w, d, color) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ color, roughness: 0.85 }));
+    m.rotation.x = -Math.PI / 2; m.position.set(x, 0.03, z); m.receiveShadow = true;
+    return m;
+  }
+  scene.add(floorPatch(4, 3, 7.8, 5.8, 0x3d3020));   // 卧室1
+  scene.add(floorPatch(12, 3, 7.8, 5.8, 0x3d3020));  // 卧室2
+  scene.add(floorPatch(5, 9, 9.8, 5.8, 0x4a3c2a));   // 客厅
+  scene.add(floorPatch(13, 9, 4.8, 5.8, 0x3a4045));  // 卫浴
+
+  // ===== 家具系统 =====
+  function boxFurniture(x, z, w, h, d, color, ry) {
+    const g = new THREE.BoxGeometry(w, h, d);
+    const m = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+    const mesh = new THREE.Mesh(g, m);
+    mesh.position.set(x, h / 2, z);
+    if (ry) mesh.rotation.y = ry;
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
+  }
+  function cylFurniture(x, z, r, h, color) {
+    const g = new THREE.CylinderGeometry(r, r, h, 20);
+    const m = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
+    const mesh = new THREE.Mesh(g, m);
+    mesh.position.set(x, h / 2, z);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  // --- 卧室1：双人床 + 床头柜 + 书桌 ---
+  const bed1Group = new THREE.Group();
+  bed1Group.add(boxFurniture(0, 0, 3, 0.6, 2.5, 0xe8d5c0));  // 床垫
+  bed1Group.add(boxFurniture(-1.5, 0, 3.2, 0.15, 0.3, 0x885522));  // 床板底
+  bed1Group.add(boxFurniture(-1.7, 0.2, 0.15, 1.2, 2.8, 0x6b4c3b)); // 床头板
+  // 枕头
+  bed1Group.add(boxFurniture(-1.0, 0.8, 0.6, 0.2, 0.6, 0xffffff));
+  bed1Group.add(boxFurniture(-1.0, -0.6, 0.6, 0.2, 0.6, 0xffffff));
+  // 床头柜
+  bed1Group.add(boxFurniture(0.6, -1.1, 0.6, 0.5, 0.6, 0x8B7355));
+  bed1Group.add(cylFurniture(0.6, -1.1, 0.15, 0.1, 0xffaa44));
+  // 书桌
+  bed1Group.add(boxFurniture(1.5, 1.0, 1.2, 0.05, 0.7, 0x996644));
+  bed1Group.add(boxFurniture(1.1, 0.7, 0.08, 0.7, 0.08, 0x775533));
+  bed1Group.add(boxFurniture(1.9, 0.7, 0.08, 0.7, 0.08, 0x775533));
+  bed1Group.position.set(3.5, 0, 4);
+  bed1Group.rotation.y = Math.PI / 2;
+  scene.add(bed1Group);
+
+  // --- 卧室2：单人床 + 衣柜 ---
+  const bed2Group = new THREE.Group();
+  bed2Group.add(boxFurniture(0, 0, 2, 0.5, 2.2, 0xd4c8b8));
+  bed2Group.add(boxFurniture(-1.3, 0.2, 0.12, 1.0, 2.4, 0x6b4c3b));
+  bed2Group.add(boxFurniture(-0.7, 0.8, 0.5, 0.15, 0.5, 0xffffff));
+  // 衣柜
+  bed2Group.add(boxFurniture(1.5, -0.8, 0.9, 2.2, 1.5, 0x8B7355));
+  bed2Group.position.set(12, 0, 3.5);
+  scene.add(bed2Group);
+
+  // --- 客厅：沙发 + 茶几 + 电视柜 + 电视 ---
+  const livingGroup = new THREE.Group();
+  // 沙发主体
+  livingGroup.add(boxFurniture(0, 0, 3.5, 0.6, 1.2, 0x4a5568));
+  // 沙发靠背
+  livingGroup.add(boxFurniture(0, -0.55, 3.5, 0.7, 0.2, 0x3a4558));
+  // 沙发扶手
+  livingGroup.add(boxFurniture(-1.6, 0, 0.2, 0.5, 1.2, 0x3a4558));
+  livingGroup.add(boxFurniture(1.6, 0, 0.2, 0.5, 1.2, 0x3a4558));
+  // 茶几
+  livingGroup.add(boxFurniture(0, 1.5, 1.5, 0.05, 0.8, 0x996644));
+  livingGroup.add(boxFurniture(0.6, 1.5, 0.1, 0.4, 0.1, 0x775533));
+  livingGroup.add(boxFurniture(-0.6, 1.5, 0.1, 0.4, 0.1, 0x775533));
+  livingGroup.add(boxFurniture(0, 1.9, 0.1, 0.4, 0.1, 0x775533));
+  livingGroup.add(boxFurniture(0, 1.1, 0.1, 0.4, 0.1, 0x775533));
+  // 电视柜
+  livingGroup.add(boxFurniture(0, 3.5, 2.0, 0.4, 0.6, 0x5a3a2a));
+  // 电视屏幕
+  const tvMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2, metalness: 0.3 });
+  const tv = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.2, 0.08), tvMat);
+  tv.position.set(0, 1.3, 3.2);
+  livingGroup.add(tv);
+  livingGroup.position.set(5, 0, 10.5);
+  livingGroup.rotation.y = Math.PI;
+  scene.add(livingGroup);
+
+  // --- 卫浴：马桶 + 洗手台 + 淋浴间 ---
+  const bathGroup = new THREE.Group();
+
+  // 地面瓷砖（浅灰色）
+  bathGroup.add(boxFurniture(0, 0, 4.5, 0.02, 5.5, 0xd5d0c8));
+
+  // === 淋浴间（右上角）===
+  const showerGroup = new THREE.Group();
+  // 淋浴底盘（略高于地面）
+  showerGroup.add(boxFurniture(0, 0, 1.8, 0.08, 1.8, 0xcccccc));
+  // 玻璃隔断：三面半透明玻璃 + 开放入口
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0xccddee, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.25 });
+  function glassWall(x, z, w, h, d) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glassMat);
+    m.position.set(x, h / 2, z); m.name = 'glass';
+    return m;
+  }
+  showerGroup.add(glassWall(0, -0.85, 1.9, 2.2, 0.04));   // 后墙
+  showerGroup.add(glassWall(-0.87, 0, 0.04, 2.2, 1.7));     // 左墙
+  showerGroup.add(glassWall(0.87, 0, 0.04, 2.2, 1.7));      // 右墙
+  // 淋浴花洒
+  showerGroup.add(cylFurniture(-0.3, -0.4, 0.04, 0.3, 0xcccccc));  // 竖管
+  showerGroup.add(boxFurniture(-0.3, -0.55, 0.25, 0.03, 0.06, 0xcccccc)); // 横管
+  // 花洒头（大圆盘）
+  const headGeo = new THREE.CylinderGeometry(0.18, 0.22, 0.05, 24);
+  const head = new THREE.Mesh(headGeo, new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.2, metalness: 0.8 }));
+  head.position.set(-0.3, 2.1, -0.55); head.rotation.x = Math.PI;
+  showerGroup.add(head);
+  // 水龙头把手
+  showerGroup.add(boxFurniture(-0.3, 0, 0.06, 0.1, 0.15, 0xdddddd));
+  showerGroup.position.set(0.8, 0, 0.8);
+  bathGroup.add(showerGroup);
+
+  // === 马桶（左下角）===
+  const toiletGroup = new THREE.Group();
+  // 水箱
+  toiletGroup.add(boxFurniture(0, 0, 0.5, 0.7, 0.3, 0xeeeeee));
+  // 水箱盖
+  toiletGroup.add(boxFurniture(0, 0, 0.55, 0.04, 0.34, 0xffffff));
+  // 冲水按钮
+  toiletGroup.add(cylFurniture(0.1, 0.05, 0.04, 0.05, 0xcccccc));
+  // 马桶座体
+  toiletGroup.add(boxFurniture(-0.35, 0, 0.45, 0.4, 0.45, 0xffffff));
+  // 座圈（椭圆环）
+  const tsGeo = new THREE.TorusGeometry(0.22, 0.05, 8, 20);
+  const ts = new THREE.Mesh(tsGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 }));
+  ts.rotation.x = Math.PI / 2; ts.position.set(-0.35, 0.42, 0.02);
+  toiletGroup.add(ts);
+  // 马桶盖（竖起）
+  const lidGeo = new THREE.BoxGeometry(0.38, 0.04, 0.44);
+  const lid = new THREE.Mesh(lidGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 }));
+  lid.position.set(-0.35, 0.65, -0.1); lid.rotation.x = -0.35;
+  toiletGroup.add(lid);
+  toiletGroup.position.set(0.8, 0, -1.2);
+  toiletGroup.rotation.y = Math.PI;
+  bathGroup.add(toiletGroup);
+
+  // === 洗手台柜（左上角）===
+  const vanityGroup = new THREE.Group();
+  // 柜体
+  vanityGroup.add(boxFurniture(0, 0, 0.7, 0.6, 0.65, 0x8B7355));
+  // 柜门把手
+  vanityGroup.add(cylFurniture(0.15, 0.3, 0.02, 0.12, 0xdddddd));
+  // 台面
+  vanityGroup.add(boxFurniture(0, 0.05, 0.78, 0.04, 0.7, 0xeeeeee));
+  // 台下盆（内凹的半圆）
+  const sinkGeo = new THREE.SphereGeometry(0.18, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+  const sink = new THREE.Mesh(sinkGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.15 }));
+  sink.position.set(0.1, 0.08, 0.15);
+  vanityGroup.add(sink);
+  // 水龙头
+  vanityGroup.add(cylFurniture(0.1, 0.3, 0.04, 0.25, 0xcccccc));
+  vanityGroup.add(boxFurniture(0, 0.25, 0.22, 0.04, 0.04, 0xcccccc));
+  // 镜子（带边框）
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.3, metalness: 0.9 });
+  vanityGroup.add(new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.85, 0.04), frameMat));
+  const mirrMat = new THREE.MeshStandardMaterial({ color: 0xccddee, roughness: 0.05, metalness: 0.9 });
+  const mirr = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 0.03), mirrMat);
+  mirr.position.set(0, 0.05, 0.03);
+  vanityGroup.add(mirr);
+  // 毛巾架
+  vanityGroup.add(cylFurniture(0.35, -0.3, 0.02, 0.5, 0xcccccc));
+  vanityGroup.add(cylFurniture(0.35, -0.55, 0.02, 0.5, 0xcccccc));
+  vanityGroup.add(cylFurniture(-0.25, 0.25, 0.02, 0.3, 0xcccccc));
+  // 毛巾
+  const towel = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.4, 0.25), new THREE.MeshStandardMaterial({ color: 0x7799bb, roughness: 0.9 }));
+  towel.position.set(-0.25, 0.1, 0.25);
+  vanityGroup.add(towel);
+  vanityGroup.position.set(0.6, 0, -1.2);
+  bathGroup.add(vanityGroup);
+
+  bathGroup.position.set(13.5, 0, 7.5);
+  bathGroup.rotation.y = -Math.PI / 2;
+  scene.add(bathGroup);
+
+  // --- 客厅地毯 ---
+  const rug = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.5, 1.5),
+    new THREE.MeshStandardMaterial({ color: 0x6b5a4e, roughness: 0.95 })
+  );
+  rug.rotation.x = -Math.PI / 2; rug.position.set(5, 0.04, 9.5);
+  scene.add(rug);
+
+  // ===== 设备系统 =====
+  function createLED(x, z) {
+    const group = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.2, 16), new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.3, metalness: 0.7 }));
+    base.position.y = 2.7; group.add(base);
+
+    const bulbGeo = new THREE.SphereGeometry(0.22, 20, 20);
+    const bulbMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.2, emissive: 0x000000, emissiveIntensity: 0 });
+    const bulb = new THREE.Mesh(bulbGeo, bulbMat);
+    bulb.position.y = 2.85; bulb.name = 'bulb'; group.add(bulb);
+
+    const pointLight = new THREE.PointLight(0xffcc88, 0, 8);
+    pointLight.position.y = 2.85;
+    pointLight.castShadow = true;
+    pointLight.shadow.mapSize.width = 256;
+    pointLight.shadow.mapSize.height = 256;
+    pointLight.shadow.bias = -0.002;
+    pointLight.name = 'pointLight';
+    group.add(pointLight);
+
+    // 地板光晕
+    const glowGeo = new THREE.PlaneGeometry(1.8, 1.8);
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+    const glow = new THREE.Mesh(glowGeo, glowMat);
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.y = 2.82;  // 相对 LED 位置
+    glow.name = 'floorGlow';
+    group.add(glow);
+
+    group.position.set(x, 0, z);
+    return group;
+  }
+
+  function createPIR(x, z) {
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.3, 16), new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.3 }));
+    body.position.y = 1.55; group.add(body);
+
+    const sensorGeo = new THREE.SphereGeometry(0.12, 14, 14);
+    const sensorMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.2, emissive: 0x000000, emissiveIntensity: 0 });
+    const sensor = new THREE.Mesh(sensorGeo, sensorMat);
+    sensor.position.y = 1.75; sensor.name = 'sensor'; group.add(sensor);
+
+    const ringGeo = new THREE.TorusGeometry(0.2, 0.03, 8, 20);
+    const ringMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3, emissive: 0x000000, emissiveIntensity: 0 });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.y = 1.75; ring.name = 'ring'; group.add(ring);
+
+    group.position.set(x, 0, z);
+    return group;
+  }
+
+  const ledLiving = createLED(5, 9);
+  const ledBed1 = createLED(4, 3);
+  const ledBed2 = createLED(12, 3);
+  const pirBath = createPIR(13, 9);
+
+  const leds = [
+    { group: ledLiving, id: 'led-living' },
+    { group: ledBed1, id: 'led-bed1' },
+    { group: ledBed2, id: 'led-bed2' },
+  ];
+  const pirs = [{ group: pirBath, id: 'pir-bath' }];
+  window._twinState.leds = leds;
+  window._twinState.pirs = pirs;
+
+  scene.add(ledLiving, ledBed1, ledBed2, pirBath);
+
+  // ===== 状态更新 =====
+  function setLEDState(ledObj, isOn) {
+    const bulb = ledObj.group.getObjectByName('bulb');
+    const pt = ledObj.group.getObjectByName('pointLight');
+    const glow = ledObj.group.getObjectByName('floorGlow');
+    if (!bulb || !pt || !glow) return;
+    if (isOn) {
+      bulb.material.color.set(0xffeeaa);
+      bulb.material.emissive.set(0xffbb33);
+      bulb.material.emissiveIntensity = 3.0;
+      bulb.material.roughness = 0.15;
+      pt.intensity = 5.0;
+      pt.color.set(0xffdd99);
+      glow.material.opacity = 0.4;
+    } else {
+      bulb.material.color.set(0x333333);
+      bulb.material.emissive.set(0x000000);
+      bulb.material.emissiveIntensity = 0;
+      bulb.material.roughness = 0.3;
+      pt.intensity = 0;
+      glow.material.opacity = 0;
+    }
+  }
+
+  function setPIRState(pirObj, isActive) {
+    const sensor = pirObj.group.getObjectByName('sensor');
+    const ring = pirObj.group.getObjectByName('ring');
+    if (!sensor || !ring) return;
+    if (isActive) {
+      sensor.material.color.set(0xff2222);
+      sensor.material.emissive.set(0xff0000);
+      sensor.material.emissiveIntensity = 3.0;
+      ring.material.color.set(0xff3333);
+      ring.material.emissive.set(0xff1111);
+      ring.material.emissiveIntensity = 2.5;
+      pirObj._active = true;
+    } else {
+      sensor.material.color.set(0x333333);
+      sensor.material.emissive.set(0x000000);
+      sensor.material.emissiveIntensity = 0;
+      ring.material.color.set(0x333333);
+      ring.material.emissive.set(0x000000);
+      ring.material.emissiveIntensity = 0;
+      sensor.scale.setScalar(1);
+      ring.scale.setScalar(1);
+      pirObj._active = false;
+    }
+  }
+
+  function updatePanel(id, value, onClass, offClass, onText, offText) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value ? onText : offText;
+    el.className = 'info-val ' + (value ? onClass : offClass);
+  }
+
+  async function pollStatus() {
+    try {
+      const resp = await fetch('/api/twin/status');
+      const json = await resp.json();
+      if (json.code !== 0 || !json.data || json.data.length === 0) {
+        leds.forEach(l => setLEDState(l, false));
+        pirs.forEach(p => setPIRState(p, false));
+        ['led-living','led-bed1','led-bed2'].forEach(id => updatePanel(id, false, 'on', 'off', '离 线', '离 线'));
+        updatePanel('pir-bath', false, 'active', 'idle', '离 线', '离 线');
+        return;
+      }
+      const d = json.data[0];
+      const pirState = d.pir;
+      // 三灯独立状态
+      setLEDState(leds[0], d.led_living !== false);
+      setLEDState(leds[1], d.led_bed1 !== false);
+      setLEDState(leds[2], d.led_bed2 !== false);
+      pirs.forEach(p => setPIRState(p, pirState));
+      updatePanel('led-living', d.led_living !== false, 'on', 'off', '开 灯', '关 灯');
+      updatePanel('led-bed1', d.led_bed1 !== false, 'on', 'off', '开 灯', '关 灯');
+      updatePanel('led-bed2', d.led_bed2 !== false, 'on', 'off', '开 灯', '关 灯');
+      updatePanel('pir-bath', pirState, 'active', 'idle', '有 人', '无 人');
+    } catch(e) { console.log('轮询:', e); }
+  }
+
+  // ===== 动画循环 =====
+  const clock = new THREE.Clock();
+  let lastPollTime = 0;
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const elapsed = performance.now() * 0.001;
+    controls.update();
+
+    // PIR 脉冲动画（更剧烈）
+    pirs.forEach(p => {
+      if (p._active) {
+        const sensor = p.group.getObjectByName('sensor');
+        const ring = p.group.getObjectByName('ring');
+        const phase = Math.sin(elapsed * 10);
+        if (sensor) {
+          sensor.scale.setScalar(1 + phase * 0.5);
+          sensor.material.emissiveIntensity = 2.5 + phase * 1.5;
+        }
+        if (ring) {
+          ring.scale.setScalar(1 + Math.abs(phase) * 0.6);
+          ring.material.emissiveIntensity = 2.0 + Math.abs(phase) * 2.0;
+        }
+      }
+    });
+
+    // LED 开灯时的微动效果
+    leds.forEach(l => {
+      const bulb = l.group.getObjectByName('bulb');
+      if (bulb && bulb.material.emissiveIntensity > 0.1) {
+        const flicker = 1 + Math.sin(elapsed * 15 + l.group.position.x) * 0.03 + Math.sin(elapsed * 23) * 0.02;
+        bulb.material.emissiveIntensity = 3.0 * flicker;
+      }
+    });
+
+    // 每 1 秒轮询（发指令后保护期内跳过）
+    if (elapsed - lastPollTime > 1.0 && elapsed > skipPollUntil) {
+      lastPollTime = elapsed;
+      pollStatus();
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  window.addEventListener('resize', () => {
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(container.clientWidth, container.clientHeight);
+  });
+
+  window.addEventListener('keydown', (e) => {
+    switch(e.key) {
+      case '1': camera.position.set(8, 18, 6.1); controls.target.set(8, 0, 6); break;
+      case '2': camera.position.set(8, 3, 25); controls.target.set(8, 1.5, 6); break;
+      case '3': camera.position.set(25, 3, 6); controls.target.set(8, 1.5, 6); break;
+      case '0': camera.position.set(22, 14, 22); controls.target.set(8, 1, 6); break;
+    }
+    controls.update();
+  });
+
+  pollStatus();
+  animate();
+</script>
+{% end %}
+{% block script %}{% end %}

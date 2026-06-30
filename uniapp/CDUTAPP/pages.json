@@ -1,17 +1,42 @@
 {
-	"pages": [ //pages数组中第一项表示应用启动页，参考：https://doc.dcloud.net.cn/uni-app-x/collocation/pagesjson.html
+	"pages": [
 		{
-			"path": "pages/index/index",
+			"path": "pages/chat/chat",
 			"style": {
-				"navigationBarTitleText": "uni-app x"
+				"navigationBarTitleText": "AI 对话"
+			}
+		},
+		{
+			"path": "pages/devices/devices",
+			"style": {
+				"navigationBarTitleText": "设备管理"
 			}
 		}
 	],
 	"globalStyle": {
 		"navigationBarTextStyle": "black",
-		"navigationBarTitleText": "uni-app x",
-		"navigationBarBackgroundColor": "#F8F8F8",
-		"backgroundColor": "#F8F8F8"
+		"navigationBarBackgroundColor": "#FFFFFF",
+		"backgroundColor": "#F5F7FA"
+	},
+	"tabBar": {
+		"color": "#999999",
+		"selectedColor": "#1E9FFF",
+		"backgroundColor": "#FFFFFF",
+		"borderStyle": "black",
+		"list": [
+			{
+				"pagePath": "pages/chat/chat",
+				"text": "AI 对话",
+				"iconPath": "",
+				"selectedIconPath": ""
+			},
+			{
+				"pagePath": "pages/devices/devices",
+				"text": "设备",
+				"iconPath": "",
+				"selectedIconPath": ""
+			}
+		]
 	},
 	"uniIdRouter": {}
 }

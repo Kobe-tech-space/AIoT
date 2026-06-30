@@ -1,0 +1,241 @@
+<template>
+  <view :class="['pg', theme]">
+    <view class="hd">
+      <view class="hd-l"><text class="hd-t">我的设备</text><text class="hd-s">{{ devices.length }} 台在线</text></view>
+      <text class="hc" @click="toggleTheme">{{ theme==='dark'?'亮':'暗' }}</text>
+    </view>
+
+    <view v-if="devices.length===0&&loading===false" class="emp">
+      <text class="em-t">暂无在线设备</text><text class="em-d">等待 ESP32 连接</text>
+      <view class="em-b" @click="fetchDevices">刷新</view>
+    </view>
+
+    <scroll-view class="lst" scroll-y refresher-enabled :refresher-triggered="refreshing" @refresherrefresh="onRefresh">
+      <view v-for="d in devices" :key="d.box_id" class="cd">
+        <view class="ct">
+          <view class="cl"><view :class="['dot', d.led===true?'don':'doff']"></view><text class="cn">{{ d.box_id }}</text></view>
+          <text :class="['tg', d.mode==='auto'?'ta':'tm']">{{ d.mode==='auto'?'AUTO':'MAN' }}</text>
+        </view>
+        <view class="cp">
+          <view class="ci"><text class="cil">光敏</text><text class="civ">{{ d.light===true ? 'Dark' : 'Bright' }}</text></view>
+          <view class="ci"><text class="cil">人体</text><text :class="['civ', d.pir===true?'cgn':'cgy']">{{ d.pir===true ? '有人' : '无人' }}</text></view>
+          <view class="ci"><text class="cil">模式</text><text class="civ">{{ d.mode==='auto'?'自动':'手动' }}</text></view>
+          <view class="ci"><text class="cil">上报</text><text class="civ">{{ d.last_seen }}s前</text></view>
+        </view>
+        <view class="ca">
+          <text class="ab ao" @click="toggleDeviceLight(d,'living')">客 厅</text>
+          <text class="ab ao" @click="toggleDeviceLight(d,'bed1')">卧 1</text>
+          <text class="ab ao" @click="toggleDeviceLight(d,'bed2')">卧 2</text>
+          <text class="ab af" @click="toggleDeviceLight(d,'all')">全 灯</text>
+        </view>
+        <view class="ca" style="margin-top:4px;">
+          <text class="ab aa" @click="cmd(d.box_id,'auto')">自动</text>
+          <text class="ab am" @click="cmd(d.box_id,'manual')">手动</text>
+        </view>
+      </view>
+      <text class="ft">下拉刷新 · 每5秒自动</text>
+    </scroll-view>
+  </view>
+</template>
+
+<script setup lang="uts">
+  const HOST = 'http://10.128.197.36:8888'
+
+  type DeviceItem = {
+    box_id: string,
+    led: boolean,
+    light: boolean,
+    pir: boolean,
+    mode: string,
+    last_seen: number
+  }
+
+  const devices = ref<Array<DeviceItem>>([])
+  const loading = ref(true)
+  const refreshing = ref(false)
+  const theme = ref('dark')
+  let timer: number = 0
+  let devLightLiving = false
+  let devLightBed1 = false
+  let devLightBed2 = false
+
+  function toggleDeviceLight(d: DeviceItem, room: string): void {
+    let cmd = ''
+    if (room === 'living') { cmd = devLightLiving ? 'living_off' : 'living_on'; devLightLiving = !devLightLiving }
+    else if (room === 'bed1') { cmd = devLightBed1 ? 'bed1_off' : 'bed1_on'; devLightBed1 = !devLightBed1 }
+    else if (room === 'bed2') { cmd = devLightBed2 ? 'bed2_off' : 'bed2_on'; devLightBed2 = !devLightBed2 }
+    else if (room === 'all') {
+      const anyOn = devLightLiving || devLightBed1 || devLightBed2
+      cmd = anyOn ? 'off' : 'on'
+      devLightLiving = !anyOn; devLightBed1 = !anyOn; devLightBed2 = !anyOn
+    }
+    if (cmd.length === 0) { return }
+    uni.request<UTSJSONObject>({
+      url: HOST + '/api/servers/command',
+      method: 'POST',
+      header: {'Content-Type': 'application/x-www-form-urlencoded'},
+      data: {server_id:'1', box_id: d.box_id, cmd: cmd},
+      success: () => { uni.showToast({title: cmd, icon:'none', duration:600}) },
+      fail: () => { uni.showToast({title:'网络异常', icon:'none'}) }
+    })
+  }
+
+  function syncTheme(): void {
+    const s = uni.getStorageSync('app_theme')
+    if (s != null) {
+      theme.value = s as string
+    }
+  }
+
+  function toggleTheme(): void {
+    theme.value = theme.value === 'dark' ? 'light' : 'dark'
+    uni.setStorageSync('app_theme', theme.value)
+  }
+
+  syncTheme()
+  onShow((): void => {
+    syncTheme()
+  })
+
+  function fetchDevices(): void {
+    uni.request<UTSJSONObject>({
+      url: HOST + '/api/devices/online',
+      method: 'GET',
+      success: (res) => {
+        const d = res.data
+        if (d != null) {
+          const codeAny = d["code"]
+          if (codeAny != null) {
+            const code = codeAny as number
+            if (code === 0) {
+              const rawList = d["data"] as Array<UTSJSONObject>
+              if (rawList != null) {
+                const list: Array<DeviceItem> = []
+                for (let i = 0; i < rawList.length; i++) {
+                  const item = rawList[i]
+                  if (item != null) {
+                    const boxIdAny = item["box_id"]
+                    const boxId = `${boxIdAny != null ? boxIdAny : ''}`
+                    const ledAny = item["led"]
+                    let led = false
+                    if (ledAny != null) { const v = ledAny as number; led = v !== 0 }
+                    const lightAny = item["light"]
+                    let light = false
+                    if (lightAny != null) { const v = lightAny as number; light = v !== 0 }
+                    const pirAny = item["pir"]
+                    let pir = false
+                    if (pirAny != null) { const v = pirAny as number; pir = v !== 0 }
+                    const modeAny = item["mode"]
+                    const mode = `${modeAny != null ? modeAny : 'manual'}`
+                    const lastAny = item["last_seen"]
+                    const lastSeen = lastAny != null ? (lastAny as number) : 0
+                    list.push({
+                      box_id: boxId,
+                      led: led,
+                      light: light,
+                      pir: pir,
+                      mode: mode,
+                      last_seen: lastSeen
+                    } as DeviceItem)
+                  }
+                }
+                devices.value = list
+                // 追踪每灯状态用于 toggle
+                if (rawList.length > 0) {
+                  const dev0 = rawList[0]
+                  if (dev0 != null) {
+                    const lv = dev0["led_living"]
+                    devLightLiving = lv != null ? ((lv as number) !== 0) : false
+                    const b1 = dev0["led_bed1"]
+                    devLightBed1 = b1 != null ? ((b1 as number) !== 0) : false
+                    const b2 = dev0["led_bed2"]
+                    devLightBed2 = b2 != null ? ((b2 as number) !== 0) : false
+                  }
+                }
+              }
+            }
+          }
+        }
+        loading.value = false
+        refreshing.value = false
+      },
+      fail: () => {
+        loading.value = false
+        refreshing.value = false
+      }
+    })
+  }
+
+  function cmd(box: string, act: string): void {
+    uni.showLoading({title:'发送...', mask:true})
+    uni.request<UTSJSONObject>({
+      url: HOST + '/api/servers/command',
+      method: 'POST',
+      header: {'Content-Type': 'application/x-www-form-urlencoded'},
+      data: {server_id:'1', box_id:box, cmd:act},
+      success: (res) => {
+        const d = res.data
+        uni.hideLoading()
+        if (d != null) {
+          const code = d["code"] as number
+          const title = code === 0 ? 'OK ' + act : 'FAIL'
+          uni.showToast({title: title, icon:'none', duration:1000})
+        }
+        setTimeout(() => { fetchDevices() }, 400)
+      },
+      fail: () => {
+        uni.hideLoading()
+        uni.showToast({title:'网络异常', icon:'none'})
+      }
+    })
+  }
+
+  function onRefresh(): void {
+    refreshing.value = true
+    fetchDevices()
+  }
+
+  fetchDevices()
+  timer = setInterval(fetchDevices, 5000) as number
+</script>
+
+<style>
+  .dark { --bg:#0a0e1a; --card:rgba(255,255,255,0.04); --text:#e0e0e0; --text2:#aaa; --text3:#666; --pn:rgba(255,255,255,0.03); }
+  .light { --bg:#F0F2F5; --card:#fff; --text:#1a1a1a; --text2:#555; --text3:#999; --pn:#F8F9FB; }
+  .pg { display:flex; flex-direction:column; position:absolute; top:0; left:0; right:0; bottom:0; background:var(--bg); }
+  .hd { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; background:#1a1040; }
+  .light .hd { background:#1E9FFF; }
+  .hd-l { display:flex; flex-direction:column; }
+  .hd-t { font-size:16px; font-weight:700; color:#fff; }
+  .hd-s { font-size:10px; color:rgba(255,255,255,0.55); }
+  .hc { padding:3px 8px; border-radius:10px; font-size:11px; color:rgba(255,255,255,0.8); background:rgba(255,255,255,0.1); }
+  .emp { display:flex; flex-direction:column; align-items:center; padding:40px 10px; }
+  .em-t { font-size:15px; font-weight:600; color:var(--text2); margin-bottom:4px; }
+  .em-d { font-size:12px; color:var(--text3); margin-bottom:16px; }
+  .em-b { padding:8px 24px; border-radius:16px; background:#1E9FFF; color:#fff; font-size:14px; }
+  .lst { flex:1; padding:8px; }
+  .cd { background:var(--card); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:10px; margin-bottom:8px; }
+  .light .cd { border-color:#E8ECF1; }
+  .ct { display:flex; flex-direction:row; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .cl { display:flex; flex-direction:row; align-items:center; }
+  .dot { width:7px; height:7px; border-radius:4px; margin-right:5px; }
+  .don { background:#00BFA5; }
+  .doff { background:#555; }
+  .cn { font-size:14px; font-weight:600; color:var(--text); }
+  .tg { font-size:9px; padding:2px 6px; border-radius:6px; font-weight:600; }
+  .ta { background:rgba(0,191,165,0.15); color:#00BFA5; }
+  .tm { background:rgba(30,159,255,0.15); color:#1E9FFF; }
+  .cp { display:flex; flex-direction:row; flex-wrap:wrap; margin-bottom:8px; background:var(--pn); border-radius:6px; padding:6px 8px; }
+  .ci { display:flex; flex-direction:column; margin-right:12px; margin-bottom:2px; }
+  .cil { font-size:10px; color:var(--text3); }
+  .civ { font-size:12px; color:var(--text2); font-weight:500; }
+  .cgn { color:#4CAF50; }
+  .cgy { color:var(--text3); }
+  .ca { display:flex; flex-direction:row; }
+  .ab { padding:5px 10px; border-radius:12px; font-size:11px; font-weight:500; color:#fff; margin-right:4px; }
+  .ao { background:#4CAF50; }
+  .af { background:#F44336; }
+  .aa { background:#2196F3; }
+  .am { background:#FF9800; }
+  .ft { text-align:center; font-size:11px; color:var(--text3); padding:8px 0 20px; }
+</style>

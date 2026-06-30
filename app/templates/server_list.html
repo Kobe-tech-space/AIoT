@@ -22,6 +22,7 @@
             <li class="layui-nav-item"><a href="/apis"><i class="layui-icon layui-icon-link"></i> 接口管理</a></li>
             <li class="layui-nav-item layui-this"><a href="/servers"><i class="layui-icon layui-icon-util"></i> 服务器管理</a></li>
             <li class="layui-nav-item"><a href="/reports"><i class="layui-icon layui-icon-chart"></i> 数据报表</a></li>
+            <li class="layui-nav-item"><a href="/twin"><i class="layui-icon layui-icon-component"></i> 📐 数字孪生</a></li>
         </ul>
     </div>
     <div class="layui-body" style="padding: 20px; background: #f5f7fa;">
@@ -107,8 +108,14 @@ layui.use(['laypage','form','layer'],function(){
                         h+='<option value="'+d.devices[k]+'">'+d.devices[k]+'</option>';
                     }
                     h+='</select>'
-                        +'<button class="cmd-btn cmd-on" data-cmd="on">开灯</button>'
-                        +'<button class="cmd-btn cmd-off" data-cmd="off">关灯</button>'
+                        +'<button class="cmd-btn cmd-on" data-cmd="on">全开</button>'
+                        +'<button class="cmd-btn cmd-off" data-cmd="off">全关</button>'
+                        +'<button class="cmd-btn cmd-room" data-cmd="living_on">客开</button>'
+                        +'<button class="cmd-btn cmd-room" data-cmd="living_off">客关</button>'
+                        +'<button class="cmd-btn cmd-room" data-cmd="bed1_on">卧1开</button>'
+                        +'<button class="cmd-btn cmd-room" data-cmd="bed1_off">卧1关</button>'
+                        +'<button class="cmd-btn cmd-room" data-cmd="bed2_on">卧2开</button>'
+                        +'<button class="cmd-btn cmd-room" data-cmd="bed2_off">卧2关</button>'
                         +'<button class="cmd-btn cmd-auto" data-cmd="auto">自动</button>'
                         +'<button class="cmd-btn cmd-manual" data-cmd="manual">手动</button>'
                         +'<button class="cmd-btn cmd-status" data-cmd="status">状态</button>'
@@ -218,6 +225,7 @@ layui.use(['laypage','form','layer'],function(){
 .cmd-btn:hover {opacity:0.85;}
 .cmd-on {background:#4CAF50;}
 .cmd-off {background:#F44336;}
+.cmd-room {background:#FF9800;}
 .cmd-auto {background:#2196F3;}
 .cmd-manual {background:#FF9800;}
 .cmd-status {background:#607D8B;}
