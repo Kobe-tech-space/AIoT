@@ -21,10 +21,27 @@
 
 ## 快速启动
 
-### 1. 启动后端
+### 1. 首次启动（从源码）
 
 ```powershell
 cd project\CDUTAgentOS
+
+# 创建虚拟环境（仅首次）
+python -m venv venv
+
+# 激活虚拟环境
+.\venv\Scripts\Activate.ps1
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 启动（自动建表 + 种子数据）
+python app.py
+```
+
+之后再次启动只需：
+
+```powershell
 .\venv\Scripts\Activate.ps1
 python app.py
 ```
