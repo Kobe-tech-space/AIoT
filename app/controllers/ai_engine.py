@@ -2,6 +2,8 @@
 
 import json
 import os
+import re
+import urllib.parse
 import urllib.request
 from openai import OpenAI
 from app.controllers.base import BaseHandler, MobileBaseHandler
@@ -165,9 +167,10 @@ def execute_function(name, args):
     if name == "get_weather":
         city = args.get("city", "chengdu")
         try:
-            req = urllib.request.Request(f"https://wttr.in/{city}?format=j1")
+            encoded = urllib.parse.quote(city)
+            req = urllib.request.Request(f"https://wttr.in/{encoded}?format=j1")
             req.add_header("User-Agent", "curl/7.0")
-            resp = urllib.request.urlopen(req, timeout=8)
+            resp = urllib.request.urlopen(req, timeout=10)
             data = json.loads(resp.read().decode("utf-8"))
             cur = data.get("current_condition", [{}])[0]
             w = cur.get("weatherDesc", [{}])[0].get("value", "?")
@@ -214,9 +217,20 @@ class ModelChatStreamHandler(MobileBaseHandler):
         t = prompt.lower()
         func_result = None
         if any(kw in t for kw in ['天气','weather','气温','下雨']):
+            # 从问句中提取城市名：优先匹配已知城市，否则从"XX天气/XX的天气"中提取
             city = 'chengdu'
-            for c in ['成都','北京','上海','深圳','杭州','南京','武汉','重庆','西安','广州']:
+            known = ['成都','北京','上海','深圳','杭州','南京','武汉','重庆','西安','广州',
+                     '昆明','长沙','郑州','济南','青岛','大连','厦门','福州','合肥','南昌',
+                     '南宁','贵阳','海口','三亚','哈尔滨','长春','沈阳','天津','苏州','无锡',
+                     '东莞','佛山','珠海','宁波','温州','石家庄','太原','兰州','银川','西宁',
+                     '拉萨','乌鲁木齐','呼和浩特']
+            for c in known:
                 if c in prompt: city = c; break
+            # 兜底：从"XX天气"或"XX的天气"中提取任意城市名（常见格式）
+            if city == 'chengdu':
+                m = re.search(r'(..[省市州县区]?)的?[天天气气温]', prompt)
+                if m and m.group(1) not in ['成都的','就是','今天','明天','现在']:
+                    city = m.group(1)
             func_result = execute_function('get_weather', {'city': city})
         elif any(kw in t for kw in ['设备状态','传感器','在线设备','查设备','还有什么设备','设备列表']):
             func_result = execute_function('get_device_status', {})
@@ -479,7 +493,7 @@ class WeatherProxyHandler(MobileBaseHandler):
     def get(self):
         city = self.get_argument("city", "chengdu")
         try:
-            url = f"https://wttr.in/{city}?format=j1"
+            url = f"https://wttr.in/{urllib.parse.quote(city)}?format=j1"
             req = urllib.request.Request(url)
             req.add_header("User-Agent", "curl/7.0")
             resp = urllib.request.urlopen(req, timeout=10)
