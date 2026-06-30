@@ -43,7 +43,6 @@
 	"app-android": {
 		"distribute": {
 			"modules": {},
-			"permissions": ["android.permission.RECORD_AUDIO"],
 			"icons": {
 				"hdpi": "C:/Users/Zx/Desktop/1_1 ICON AIoT智能控制.png",
 				"xhdpi": "",
