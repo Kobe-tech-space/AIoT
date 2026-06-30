@@ -141,7 +141,7 @@ layui.use(['table','element'],function(){
         if(type==='pie'){
             var data=[];
             for(var i=0;i<labels.length;i++)data.push({name:labels[i],value:values[i]});
-            chart.setOption({tooltip:{trigger:'item'},legend:{bottom:0},series:[{type:'pie',radius:['40%','70%'],data:data,label:{formatter:'{b}: {c}'}}]});
+            chart.setOption({tooltip:{trigger:'item'},legend:{bottom:10,itemGap:16},series:[{type:'pie',radius:['40%','70%'],center:['50%','45%'],data:data,label:{formatter:'{b}: {c}'}}]});
         }else if(type==='bar'){
             chart.setOption({tooltip:{trigger:'axis'},grid:{left:'3%',right:'4%',bottom:'3%',containLabel:true},xAxis:{type:'category',data:labels},yAxis:{type:'value',name:ylabel},series:[{type:'bar',data:values,itemStyle:{color:'#1E9FFF'}}]});
         }else{
