@@ -70,9 +70,7 @@ class OperationLogRepository:
         with get_connection() as conn:
             type_stats = conn.execute(
                 """SELECT log_type, COUNT(*) as cnt FROM operation_logs
-                   WHERE created_at >= datetime('now', ?)
                    GROUP BY log_type ORDER BY cnt DESC""",
-                (f"-{hours} hours",),
             ).fetchall()
             device_stats = conn.execute(
                 """SELECT box_id, COUNT(*) as cnt FROM operation_logs
