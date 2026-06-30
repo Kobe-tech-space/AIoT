@@ -108,12 +108,12 @@ class AiModelRepository:
                 conn.execute("UPDATE ai_models SET is_default = 1 WHERE model_name = 'qwen3.5-flash'")
 
         # TTS 模型（语音合成）
-        if not AiModelRepository.get_model_by_name("qwen3-tts-flash"):
+        if not AiModelRepository.get_model_by_name("cosyvoice-v3-flash"):
             AiModelRepository.create_model(
-                name="qwen3-tts-flash (TTS)",
+                name="cosyvoice-v3-flash (TTS)",
                 api_key="sk-aigc-74417635957c145bcc72f4687569e4e07b2c0b43",
                 api_url="https://aigc-api.aitoolcore.com/api/v1",
-                model_name="qwen3-tts-flash",
+                model_name="cosyvoice-v3-flash",
                 temperature=1.0,
                 max_tokens=4096,
             )

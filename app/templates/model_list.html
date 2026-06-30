@@ -60,12 +60,19 @@
     </form>
 </div>
 
+<audio id="tts-player" style="display:none"></audio>
 <!-- 对话弹窗 -->
 <div id="chat-layer" style="display:none;">
     <div class="chat-wrap">
         <div class="chat-topbar">
             <span>控制设备：</span>
             <select id="chat-device-sel" class="chat-dev-sel"><option value="">未选择</option></select>
+            <span style="margin-left:12px;">TTS：</span>
+            <button id="tts-toggle" class="tts-btn tts-on" onclick="toggleTTS()" title="开关语音播报">开</button>
+            <select id="tts-voice" class="chat-dev-sel" onchange="changeVoice()" title="选择音色">
+                <option value="jiaxin">嘉欣</option>
+                <option value="xiaochun">小春</option>
+            </select>
         </div>
         <div class="chat-body" id="chat-msgs"></div>
         <div class="chat-foot">
@@ -81,6 +88,26 @@
 layui.use(['laypage','form','layer'],function(){
     var laypage=layui.laypage,form=layui.form,layer=layui.layer,$=layui.$,p=1;
     var chatModelId=0,chatSending=false,chatHistory=[];
+    var ttsOn=true,ttsVoice='jiaxin';
+
+    // 首次用户交互激活音频（绕过自动播放限制）
+    $(document).one('click keydown',function(){
+        document.getElementById('tts-player').play().catch(function(){});
+    });
+
+    window.toggleTTS=function(){
+        ttsOn=!ttsOn;
+        $('#tts-toggle').text(ttsOn?'开':'关').toggleClass('tts-on',ttsOn).toggleClass('tts-off',!ttsOn);
+    };
+    window.changeVoice=function(){
+        ttsVoice=$('#tts-voice').val();
+    };
+    function playTTS(text){
+        if(!ttsOn)return;
+        var player=document.getElementById('tts-player');
+        player.src='/api/tts?id=2&text='+encodeURIComponent(text)+'&voice='+ttsVoice;
+        player.play().catch(function(){});
+    }
 
     function load(pg){
         p=pg||1;
@@ -208,6 +235,7 @@ layui.use(['laypage','form','layer'],function(){
                 chatHistory.push({role:'user',content:txt});
                 chatHistory.push({role:'assistant',content:r.reply});
                 bubble.html(r.reply.replace(/\n/g,'<br>'));
+                playTTS(r.reply);
             }else{
                 bubble.html('<span style="color:#F85149">'+r.msg+'</span>');
             }
@@ -228,6 +256,9 @@ layui.use(['laypage','form','layer'],function(){
 .chat-wrap {display:flex;flex-direction:column;height:450px;background:#f5f7fa;}
 .chat-topbar {display:flex;align-items:center;gap:8px;padding:8px 16px;background:#fff;border-bottom:1px solid #eee;font-size:13px;color:#666;}
 .chat-dev-sel {height:30px;border:1px solid #ddd;border-radius:4px;padding:0 8px;font-size:12px;outline:none;}
+.tts-btn {height:30px;padding:0 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid #ddd;transition:all 0.2s;}
+.tts-on {background:#00BFA5;color:#fff;border-color:#00BFA5;}
+.tts-off {background:#fff;color:#999;}
 .chat-body {flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;}
 .c-row {display:flex;gap:8px;max-width:85%;}
 .c-usr {align-self:flex-end;flex-direction:row-reverse;}

@@ -3,6 +3,7 @@
 import json
 import os
 import urllib.request
+from openai import OpenAI
 from app.controllers.base import BaseHandler, MobileBaseHandler
 from app.controllers.user_manage import admin_required
 from app.models.ai_model import AiModelRepository
@@ -102,6 +103,23 @@ class ModelDefaultHandler(BaseHandler):
         self.write(json.dumps({"code": 0, "msg": "已设为默认模型"}, ensure_ascii=False))
 
 
+def _get_client(model):
+    """创建 OpenAI 客户端"""
+    return OpenAI(api_key=model["api_key"], base_url=model["api_url"])
+
+
+def _chat_sync(model, messages, temperature=None, max_tokens=None):
+    """同步对话（非流式）"""
+    client = _get_client(model)
+    response = client.chat.completions.create(
+        model=model["model_name"],
+        messages=messages,
+        temperature=temperature if temperature is not None else model["temperature"],
+        max_tokens=max_tokens if max_tokens is not None else model["max_tokens"],
+    )
+    return response.choices[0].message.content
+
+
 class ModelChatHandler(BaseHandler):
     """模型对话测试"""
 
@@ -116,23 +134,11 @@ class ModelChatHandler(BaseHandler):
             return
 
         try:
-            req_data = json.dumps({
-                "model": model["model_name"],
-                "messages": [
-                    {"role": "system", "content": _load_system_prompt()},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": model["temperature"],
-                "max_tokens": model["max_tokens"],
-            }).encode("utf-8")
-
-            req = urllib.request.Request(model["api_url"] + "/chat/completions", data=req_data)
-            req.add_header("Content-Type", "application/json")
-            req.add_header("Authorization", f"Bearer {model['api_key']}")
-
-            resp = urllib.request.urlopen(req, timeout=30)
-            body = json.loads(resp.read().decode("utf-8"))
-            reply = body["choices"][0]["message"]["content"]
+            messages = [
+                {"role": "system", "content": _load_system_prompt()},
+                {"role": "user", "content": prompt}
+            ]
+            reply = _chat_sync(model, messages)
             self.write(json.dumps({"code": 0, "reply": reply}, ensure_ascii=False))
         except Exception as e:
             self.write(json.dumps({"code": 1, "msg": f"调用失败: {e}"}, ensure_ascii=False))
@@ -223,12 +229,7 @@ class ModelChatStreamHandler(MobileBaseHandler):
             fm = [{"role":"system","content":"你是小智。把以下数据用口语化方式告诉用户，1-2句话，带emoji。"},
                   {"role":"user","content": "用户问：" + prompt + " 查询结果：" + func_result + " 请自然回复："}]
             try:
-                rd = json.dumps({"model":model["model_name"],"messages":fm,"temperature":0.8,"max_tokens":200}).encode("utf-8")
-                rq = urllib.request.Request(model["api_url"]+"/chat/completions",data=rd)
-                rq.add_header("Content-Type","application/json")
-                rq.add_header("Authorization",f"Bearer {model['api_key']}")
-                rr = json.loads(urllib.request.urlopen(rq,timeout=15).read().decode("utf-8"))
-                reply = rr["choices"][0]["message"]["content"]
+                reply = _chat_sync(model, fm, temperature=0.8, max_tokens=200)
             except:
                 reply = func_result
             self.write(json.dumps({"code": 0, "reply": reply}, ensure_ascii=False))
@@ -239,12 +240,7 @@ class ModelChatStreamHandler(MobileBaseHandler):
         messages.extend(history)
         messages.append({"role": "user", "content": prompt})
         try:
-            req_data = json.dumps({"model": model["model_name"], "messages": messages, "temperature": model["temperature"], "max_tokens": model["max_tokens"]}).encode("utf-8")
-            req = urllib.request.Request(model["api_url"] + "/chat/completions", data=req_data)
-            req.add_header("Content-Type", "application/json")
-            req.add_header("Authorization", f"Bearer {model['api_key']}")
-            body = json.loads(urllib.request.urlopen(req, timeout=60).read().decode("utf-8"))
-            reply = body["choices"][0]["message"]["content"]
+            reply = _chat_sync(model, messages)
             self.write(json.dumps({"code": 0, "reply": reply}, ensure_ascii=False))
         except Exception as e:
             self.write(json.dumps({"code": 1, "msg": f"调用失败: {e}"}, ensure_ascii=False))
@@ -345,19 +341,29 @@ class ApiTestHandler(BaseHandler):
             self.write(json.dumps({"code": 1, "msg": f"连通失败: {e}"}, ensure_ascii=False))
 
 
+VOICES = {
+    "xiaochun": "longxiaochun_v3",
+    "jiaxin": "longjiaxin_v3",
+}
+
 class TTSHandler(MobileBaseHandler):
-    """语音合成代理（qwen3-tts-flash）— 不支持流式，返回完整 MP3"""
+    """语音合成代理 — 不支持流式，生成 MP3 后返回。voice 参数选音色：jiaxin(默认) / xiaochun"""
+
+    def get(self):
+        return self.post()
 
     def post(self):
-        model_id = self.get_body_argument("id", "1")
-        text = (self.get_body_argument("text", "") or "").strip()
+        model_id = self.get_argument("id", "1")
+        text = (self.get_argument("text", "") or "").strip()
+        voice_key = (self.get_argument("voice", "jiaxin") or "jiaxin").strip().lower()
+        voice = VOICES.get(voice_key, "longjiaxin_v3")
 
         model = AiModelRepository.get_model_by_id(int(model_id))
-        # 优先用 TTS 专用模型，否则查 ai_models 中 model_name 含 tts 的
-        if not model or "tts" not in (model["model_name"] or "").lower():
+        # 优先用 TTS 专用模型，否则查 ai_models 中含有语音模型关键字的
+        if not model or ("tts" not in (model["model_name"] or "").lower() and "cosyvoice" not in (model["model_name"] or "").lower()):
             with get_connection() as conn:
                 model = conn.execute(
-                    "SELECT * FROM ai_models WHERE LOWER(model_name) LIKE '%tts%' LIMIT 1"
+                    "SELECT * FROM ai_models WHERE LOWER(model_name) LIKE '%tts%' OR LOWER(model_name) LIKE '%cosyvoice%' LIMIT 1"
                 ).fetchone()
         if not model:
             model = AiModelRepository.get_default_model()
@@ -367,19 +373,14 @@ class TTSHandler(MobileBaseHandler):
             return
 
         try:
-            req_data = json.dumps({
-                "model": "qwen3-tts-flash",
-                "input": text,
-                "voice": "longxiaochun_v3",
-                "response_format": "mp3",
-            }).encode("utf-8")
-
-            req = urllib.request.Request(model["api_url"] + "/audio/speech", data=req_data)
-            req.add_header("Content-Type", "application/json")
-            req.add_header("Authorization", f"Bearer {model['api_key']}")
-
-            resp = urllib.request.urlopen(req, timeout=30)
-            audio_data = resp.read()
+            client = _get_client(model)
+            response = client.audio.speech.create(
+                model="cosyvoice-v3-flash",
+                input=text,
+                voice=voice,
+                response_format="mp3",
+            )
+            audio_data = response.read()
 
             self.set_header("Content-Type", "audio/mpeg")
             self.set_header("Content-Length", str(len(audio_data)))
@@ -388,9 +389,88 @@ class TTSHandler(MobileBaseHandler):
             self.set_status(500)
             detail = str(e)
             try:
-                if hasattr(e, "read"): detail = e.read().decode("utf-8")[:500]
+                if hasattr(e, "response"): detail = e.response.text[:500]
             except: pass
             self.write(json.dumps({"code": 1, "msg": f"TTS 失败: {detail}"}, ensure_ascii=False))
+
+
+class ASRHandler(MobileBaseHandler):
+    """语音识别代理 — 接收音频文件，调用 OpenAI transcriptions API 返回识别文本"""
+
+    def post(self):
+        # 校验上传文件
+        if "file" not in self.request.files or len(self.request.files["file"]) == 0:
+            self.set_status(400)
+            self.write(json.dumps({"code": 1, "msg": "未收到音频文件"}, ensure_ascii=False))
+            return
+
+        upload = self.request.files["file"][0]
+        filename = upload.get("filename", "audio.wav")
+        body = upload.get("body", b"")
+        content_type = upload.get("content_type", "audio/wav")
+
+        if len(body) == 0:
+            self.set_status(400)
+            self.write(json.dumps({"code": 1, "msg": "音频文件为空"}, ensure_ascii=False))
+            return
+
+        # 查找可用模型（优先音频类模型，回退默认模型）
+        model_id = self.get_argument("id", "1")
+        model = AiModelRepository.get_model_by_id(int(model_id))
+        if not model or (
+            "tts" not in (model["model_name"] or "").lower()
+            and "cosyvoice" not in (model["model_name"] or "").lower()
+            and "whisper" not in (model["model_name"] or "").lower()
+        ):
+            with get_connection() as conn:
+                model = conn.execute(
+                    "SELECT * FROM ai_models WHERE "
+                    "LOWER(model_name) LIKE '%tts%' OR "
+                    "LOWER(model_name) LIKE '%cosyvoice%' OR "
+                    "LOWER(model_name) LIKE '%whisper%' "
+                    "LIMIT 1"
+                ).fetchone()
+        if not model:
+            model = AiModelRepository.get_default_model()
+        if not model:
+            self.set_status(500)
+            self.write(json.dumps({"code": 1, "msg": "没有可用的 ASR 模型"}, ensure_ascii=False))
+            return
+
+        # 根据 content_type 推断文件后缀
+        ext_map = {
+            "audio/wav": "wav", "audio/mpeg": "mp3", "audio/mp3": "mp3",
+            "audio/mp4": "m4a", "audio/m4a": "m4a",
+            "audio/webm": "webm", "audio/ogg": "ogg",
+        }
+        ext = ext_map.get(content_type, "wav")
+        if "." not in filename:
+            filename = f"audio.{ext}"
+
+        try:
+            from io import BytesIO
+
+            client = _get_client(model)
+            audio_file = BytesIO(body)
+            audio_file.name = filename
+
+            transcription = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="zh",
+            )
+            text = transcription.text.strip()
+            self.write(json.dumps({"code": 0, "text": text}, ensure_ascii=False))
+
+        except Exception as e:
+            self.set_status(500)
+            detail = str(e)
+            try:
+                if hasattr(e, "response"):
+                    detail = e.response.text[:500]
+            except:
+                pass
+            self.write(json.dumps({"code": 1, "msg": f"语音识别失败: {detail}"}, ensure_ascii=False))
 
 
 class WeatherProxyHandler(MobileBaseHandler):

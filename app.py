@@ -29,7 +29,7 @@ from app.controllers.home import IndexHandler, DashboardApiHandler
 from app.controllers.report import ReportPageHandler, ReportApiHandler, StatsApiHandler
 from app.controllers.ai_engine import (
     ModelListHandler, ModelApiHandler, ModelDefaultHandler, ModelChatHandler,
-    ModelChatStreamHandler, TTSHandler, WeatherProxyHandler,
+    ModelChatStreamHandler, TTSHandler, ASRHandler, WeatherProxyHandler,
     ApiListHandler, ExternalApiHandler, ApiTestHandler,
 )
 from app.models.external_api import ExternalApiRepository
@@ -116,6 +116,7 @@ def make_app():
             (r"/api/external/test", ApiTestHandler),
             (r"/api/weather", WeatherProxyHandler),
             (r"/api/tts", TTSHandler),
+            (r"/api/asr", ASRHandler),
             # 服务器管理
             (r"/servers", ServerListHandler),
             (r"/api/servers", ServerApiHandler),

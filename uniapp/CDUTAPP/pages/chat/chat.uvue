@@ -3,9 +3,8 @@
     <view class="hd">
       <view class="hd-l"><text class="hd-t">CDUTAPP AI</text><text class="hd-s">AIoT 助手</text></view>
       <view class="hd-r">
-        <!-- #ifdef WEB -->
-        <text :class="['hc', ttsEnabled===true?'hc-on':'hc-off']" @click="toggleTTS">{{ ttsEnabled===true?'TTS开':'TTS关' }}</text>
-        <!-- #endif -->
+        <text :class="['hc', ttsEnabled===true?'hc-on':'hc-off']" @click="toggleTTS">{{ ttsEnabled===true?'TTS':'静音' }}</text>
+        <text class="hc" @click="toggleVoice">{{ ttsVoice }}</text>
         <text class="hc hc-num">{{ onlineCount }}在线</text>
         <text class="hc" @click="toggleTheme">{{ theme==='dark'?'亮':'暗' }}</text>
         <text class="hc" @click="clearChat">清空</text>
@@ -42,9 +41,9 @@
     </scroll-view>
 
     <view class="ib">
-      <!-- #ifdef WEB -->
-      <view class="ib-v" @click="startVoice"><text class="ib-vt">🎤</text></view>
-      <!-- #endif -->
+      <view :class="['ib-mic', recording===true?'ib-mic-on':'ib-mic-off']" @click="toggleRecord">
+        <text class="ib-mict">{{ recording===true?'⏹':'🎤' }}</text>
+      </view>
       <textarea class="ib-i" v-model="txt" placeholder="输入..." auto-height maxlength="-1" @confirm="send"/>
       <view class="ib-b" @click="send"><text class="ib-bt">发送</text></view>
     </view>
@@ -70,14 +69,15 @@
   const onlineCount = ref(0)
   const theme = ref('dark')
   const ttsEnabled = ref(true)
-  const listening = ref(false)
+  const ttsVoice = ref('jiaxin')
   let lightLiving = false
   let lightBed1 = false
   let lightBed2 = false
   let timer: number = 0
-  // #ifdef WEB
-  let recognition: any = null
-  // #endif
+
+  // ===== 语音输入状态 =====
+  const recording = ref(false)
+  const uploading = ref(false)
 
   // ===== 无依赖函数（放最前面）=====
 
@@ -95,6 +95,10 @@
 
   function toggleTTS(): void {
     ttsEnabled.value = ttsEnabled.value === true ? false : true
+  }
+
+  function toggleVoice(): void {
+    ttsVoice.value = ttsVoice.value === 'jiaxin' ? 'xiaochun' : 'jiaxin'
   }
 
   function addMsg(role: string, content: string | null): void {
@@ -222,17 +226,12 @@
     })
   }
 
-  // #ifdef WEB
   function playTTS(text: string): void {
-    const ctx = (window as any).speechSynthesis
-    if (ctx == null) { return }
-    ctx.cancel()
-    const u = new (window as any).SpeechSynthesisUtterance(text)
-    u.lang = 'zh-CN'
-    u.rate = 1.1
-    ctx.speak(u)
+    const vc = ttsVoice.value === 'jiaxin' ? 'jiaxin' : 'xiaochun'
+    const audioCtx = uni.createInnerAudioContext()
+    audioCtx.src = HOST + '/api/tts?id=2&text=' + encodeURIComponent(text) + '&voice=' + vc
+    audioCtx.autoplay = true
   }
-  // #endif
 
   // ===== send 依赖 addMsg / detectCmd / sendCmd / playTTS =====
 
@@ -293,9 +292,7 @@
               const replyAny = d["reply"]
               const reply = `${replyAny != null ? replyAny : ''}`
               addMsg('ai', reply)
-              // #ifdef WEB
               if (ttsEnabled.value === true) { playTTS(reply) }
-              // #endif
             } else {
               const msgAny = d["msg"]
               const errText = `${msgAny != null ? msgAny : ''}`
@@ -333,29 +330,96 @@
     addMsg('sys', '已发送: ' + cmd)
   }
 
-  // #ifdef WEB
-  function startVoice(): void {
-    if (listening.value === true) { return }
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (SR == null) {
-      uni.showToast({title:'浏览器不支持', icon:'none'})
+  // ===== 语音输入函数 =====
+
+  // 直接初始化，UTS 自动推断类型，避免 any 类型擦除
+  const rm = uni.getRecorderManager()
+
+  rm.onStop((res) => {
+    if (res == null) {
+      uni.showToast({title: "录音失败", icon: "none", duration: 1500})
       return
     }
-    if (recognition == null) {
-      recognition = new SR()
-      recognition.lang = 'zh-CN'
-      recognition.interimResults = false
-      recognition.onresult = (e: any) => {
-        txt.value = e.results[0][0].transcript
-        send()
-      }
-      recognition.onend = () => { listening.value = false }
-      recognition.onerror = () => { listening.value = false }
+    const p = res.tempFilePath
+    const path = `${p != null ? p : ""}`
+    if (path.length === 0) {
+      uni.showToast({title: "录音文件为空", icon: "none", duration: 1500})
+      return
     }
-    listening.value = true
-    recognition.start()
+
+    uploading.value = true
+    uni.showLoading({title: "识别中...", mask: true})
+
+    uni.uploadFile({
+      url: HOST + "/api/asr?id=2",
+      filePath: path,
+      name: "file",
+      header: {"Content-Type": "multipart/form-data"},
+      success: (uploadRes) => {
+        uni.hideLoading()
+        uploading.value = false
+        if (uploadRes.statusCode === 200) {
+          try {
+            const d = JSON.parse(uploadRes.data) as UTSJSONObject
+            if (d != null) {
+              const codeAny = d["code"]
+              const code = codeAny != null ? (codeAny as number) : -1
+              if (code === 0) {
+                const textAny = d["text"]
+                const text = `${textAny != null ? textAny : ""}`.trim()
+                if (text.length > 0) {
+                  txt.value = text
+                  send()
+                } else {
+                  uni.showToast({title: "未识别到语音内容", icon: "none", duration: 1500})
+                }
+              } else {
+                const msgAny = d["msg"]
+                const msg = `${msgAny != null ? msgAny : ""}`
+                uni.showToast({title: "识别失败: " + msg, icon: "none", duration: 2000})
+              }
+            }
+          } catch (e) {
+            uni.showToast({title: "识别结果解析失败", icon: "none", duration: 1500})
+          }
+        } else {
+          uni.showToast({title: "上传失败", icon: "none", duration: 1500})
+        }
+      },
+      fail: () => {
+        uni.hideLoading()
+        uploading.value = false
+        uni.showToast({title: "网络异常", icon: "none", duration: 1500})
+      }
+    })
+  })
+
+  rm.onError((err) => {
+    recording.value = false
+    uploading.value = false
+    uni.hideLoading()
+    const em = err != null ? err.errMsg : null
+    const errMsg = `${em != null ? em : ""}`
+    uni.showToast({title: "录音错误: " + errMsg, icon: "none", duration: 2000})
+  })
+
+  function toggleRecord(): void {
+    if (uploading.value === true) { return }
+    if (recording.value === true) {
+      rm.stop()
+      recording.value = false
+    } else {
+      rm.start({
+        duration: 60000,
+        sampleRate: 16000,
+        numberOfChannels: 1,
+        encodeBitRate: 48000,
+        format: "wav",
+      })
+      recording.value = true
+      uni.showToast({title: "正在录音...", icon: "none", duration: 800})
+    }
   }
-  // #endif
 
   // ===== 初始化代码（所有函数定义完毕后执行）=====
 
@@ -401,12 +465,17 @@
   .mbl { background:rgba(255,255,255,0.08); }
   .light .mbl { background:#fff; }
   .mbs { background:rgba(0,191,165,0.12); border:1px solid rgba(0,191,165,0.25); border-radius:6px; }
-  .mt { font-size:13px; line-height:1.5; color:#e0e0e0; word-break:break-all; overflow:hidden; }
+  .mt { font-size:13px; line-height:1.5; color:#e0e0e0; overflow:hidden; }
   .light .mt { color:#1a1a1a; }
   .mr .mt { color:#fff; }
   .qb { display:flex; flex-direction:row; padding:5px 6px; background:var(--bbg); border-top:1px solid rgba(255,255,255,0.05); white-space:nowrap; }
   .qb-b { padding:4px 8px; border-radius:10px; font-size:10px; background:rgba(255,255,255,0.06); color:#999; margin:0 2px; flex-shrink:0; border:1px solid rgba(255,255,255,0.06); }
   .ib { display:flex; flex-direction:row; align-items:flex-end; padding:6px 8px; background:var(--bbg); border-top:1px solid rgba(255,255,255,0.05); }
+  .ib-mic { width:36px; height:36px; border-radius:18px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-right:2px; }
+  .ib-mic-off { background:var(--ibg); border:1px solid rgba(255,255,255,0.08); }
+  .light .ib-mic-off { border-color:#e0e0e0; }
+  .ib-mic-on { background:#F44336; border:1px solid rgba(244,67,54,0.3); }
+  .ib-mict { font-size:16px; }
   .ib-v { width:32px; height:32px; border-radius:16px; background:var(--ibg); display:flex; align-items:center; justify-content:center; flex-shrink:0; border:1px solid rgba(255,255,255,0.08); }
   .ib-vt { font-size:16px; }
   .ib-i { flex:1; background:var(--ibg); border-radius:16px; padding:6px 10px; font-size:13px; color:var(--text); max-height:80px; border:1px solid rgba(255,255,255,0.08); margin-left:4px; margin-right:4px; }

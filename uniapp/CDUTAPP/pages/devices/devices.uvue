@@ -10,6 +10,21 @@
       <view class="em-b" @click="fetchDevices">刷新</view>
     </view>
 
+    <view class="wx-card">
+      <view class="wx-row">
+        <text class="wx-city">{{ weather.city }}</text>
+        <text class="wx-temp">{{ weather.temp }}</text>
+      </view>
+      <text class="wx-desc">{{ weather.desc }}</text>
+      <view class="wx-cities">
+        <text v-for="c in cities" :key="c" :class="['wx-c', weatherCity===c?'wx-sel':'']" @click="changeCity(c)">{{ c }}</text>
+      </view>
+      <view class="wx-add">
+        <input class="wx-inp" v-model="customCity" placeholder="输入城市名" @confirm="changeCity(customCity)"/>
+        <text class="wx-ok" @click="changeCity(customCity)">搜索</text>
+      </view>
+    </view>
+
     <scroll-view class="lst" scroll-y refresher-enabled :refresher-triggered="refreshing" @refresherrefresh="onRefresh">
       <view v-for="d in devices" :key="d.box_id" class="cd">
         <view class="ct">
@@ -55,6 +70,11 @@
   const refreshing = ref(false)
   const theme = ref('dark')
   let timer: number = 0
+  const weather = ref<UTSJSONObject>({city:'成 都',temp:'加载中...',desc:''} as UTSJSONObject)
+  const weatherLoaded = ref(false)
+  const weatherCity = ref('成都')
+  const customCity = ref('')
+  const cities = ref<Array<string>>(['成都','宜宾','北京','上海','深圳','杭州','南京','武汉','重庆','西安','广州'])
   let devLightLiving = false
   let devLightBed1 = false
   let devLightBed2 = false
@@ -190,12 +210,67 @@
     })
   }
 
+  function translateWeather(en: string): string {
+    const lower = en.toLowerCase()
+    if (lower.indexOf('sunny') >= 0 || lower.indexOf('clear') >= 0) return '晴'
+    if (lower.indexOf('fair') >= 0) return '晴'
+    if (lower.indexOf('partly cloudy') >= 0) return '多云'
+    if (lower.indexOf('cloudy') >= 0 || lower.indexOf('overcast') >= 0) return '阴'
+    if (lower.indexOf('mist') >= 0) return '薄雾'
+    if (lower.indexOf('fog') >= 0 || lower.indexOf('freezing fog') >= 0) return '雾'
+    if (lower.indexOf('drizzle') >= 0) return '毛毛雨'
+    if (lower.indexOf('light rain') >= 0) return '小雨'
+    if (lower.indexOf('moderate rain') >= 0) return '中雨'
+    if (lower.indexOf('heavy rain') >= 0 || lower.indexOf('torrential') >= 0) return '大雨'
+    if (lower.indexOf('rain shower') >= 0) return '阵雨'
+    if (lower.indexOf('rain') >= 0) return '雨'
+    if (lower.indexOf('thunder') >= 0) return '雷暴'
+    if (lower.indexOf('snow') >= 0 && lower.indexOf('heavy') >= 0) return '大雪'
+    if (lower.indexOf('snow') >= 0 && lower.indexOf('moderate') >= 0) return '中雪'
+    if (lower.indexOf('snow') >= 0 || lower.indexOf('blizzard') >= 0 || lower.indexOf('blowing') >= 0) return '小雪'
+    if (lower.indexOf('sleet') >= 0 || lower.indexOf('ice') >= 0 || lower.indexOf('freezing') >= 0) return '冻雨/雪'
+    if (lower.indexOf('haze') >= 0 || lower.indexOf('smoke') >= 0 || lower.indexOf('smoky') >= 0) return '霾'
+    if (lower.indexOf('dust') >= 0 || lower.indexOf('sand') >= 0) return '沙尘'
+    return en
+  }
+
+  function fetchWeather(): void {
+    const city = weatherCity.value
+    uni.request<UTSJSONObject>({
+      url: 'https://wttr.in/' + encodeURIComponent(city) + '?format=j1&lang=zh',
+      method: 'GET',
+      success: (res) => {
+        const d = res.data
+        if (d != null) {
+          const cur = (d["current_condition"] as Array<UTSJSONObject>)
+          if (cur != null && cur.length > 0) {
+            const c = cur[0]
+            const wd = c["weatherDesc"] as Array<UTSJSONObject>
+            const descEn = wd != null && wd.length > 0 ? (wd[0]["value"] as string) : ''
+            const desc = translateWeather(descEn)
+            const temp = `${c["temp_C"] as string}°C`
+            const hum = c["humidity"] as string
+            weather.value = {city: city, temp: temp, desc: `${desc}  湿度${hum}%`} as UTSJSONObject
+            weatherLoaded.value = true
+          }
+        }
+      }
+    })
+  }
+
+  function changeCity(city: string): void {
+    weatherCity.value = city
+    weather.value = {city: city, temp:'加载中...', desc:''} as UTSJSONObject
+    setTimeout(() => { fetchWeather() }, 100)
+  }
+
   function onRefresh(): void {
     refreshing.value = true
     fetchDevices()
   }
 
   fetchDevices()
+  fetchWeather()
   timer = setInterval(fetchDevices, 5000) as number
 </script>
 
@@ -209,6 +284,19 @@
   .hd-t { font-size:16px; font-weight:700; color:#fff; }
   .hd-s { font-size:10px; color:rgba(255,255,255,0.55); }
   .hc { padding:3px 8px; border-radius:10px; font-size:11px; color:rgba(255,255,255,0.8); background:rgba(255,255,255,0.1); }
+  .wx-card { margin:8px 10px; padding:14px 16px; background:var(--card); border:1px solid rgba(255,255,255,0.06); border-radius:12px; }
+  .light .wx-card { border-color:#E8ECF1; }
+  .wx-row { display:flex; flex-direction:row; align-items:flex-end; justify-content:space-between; }
+  .wx-city { font-size:14px; color:var(--text2); }
+  .wx-temp { font-size:28px; font-weight:700; color:#00BFA5; }
+  .wx-desc { font-size:12px; color:var(--text3); margin-top:4px; }
+  .wx-cities { display:flex; flex-direction:row; flex-wrap:wrap; margin-top:8px; }
+  .wx-c { padding:2px 8px; border-radius:8px; font-size:10px; color:var(--text3); background:var(--pn); margin-right:4px; margin-bottom:4px; border:1px solid transparent; }
+  .wx-sel { color:#00BFA5; border-color:#00BFA5; background:rgba(0,191,165,0.08); }
+  .wx-add { display:flex; flex-direction:row; align-items:center; margin-top:6px; }
+  .wx-inp { flex:1; height:28px; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:0 8px; font-size:11px; color:var(--text); background:var(--pn); }
+  .light .wx-inp { border-color:#ddd; }
+  .wx-ok { padding:4px 10px; border-radius:6px; font-size:11px; color:#fff; background:#00BFA5; margin-left:6px; }
   .emp { display:flex; flex-direction:column; align-items:center; padding:40px 10px; }
   .em-t { font-size:15px; font-weight:600; color:var(--text2); margin-bottom:4px; }
   .em-d { font-size:12px; color:var(--text3); margin-bottom:16px; }
